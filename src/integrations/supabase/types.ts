@@ -278,6 +278,71 @@ export type Database = {
           },
         ]
       }
+      campaign_segment_map: {
+        Row: {
+          account_id: string
+          campaign_id: string
+          computed_at: string
+          id: string
+          match_status: Database["public"]["Enums"]["segment_match_status"]
+          matched_rules: Json | null
+          platform: Database["public"]["Enums"]["integration_provider"]
+          segment_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          account_id: string
+          campaign_id: string
+          computed_at?: string
+          id?: string
+          match_status?: Database["public"]["Enums"]["segment_match_status"]
+          matched_rules?: Json | null
+          platform: Database["public"]["Enums"]["integration_provider"]
+          segment_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          account_id?: string
+          campaign_id?: string
+          computed_at?: string
+          id?: string
+          match_status?: Database["public"]["Enums"]["segment_match_status"]
+          matched_rules?: Json | null
+          platform?: Database["public"]["Enums"]["integration_provider"]
+          segment_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_segment_map_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_segment_map_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_segment_map_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_segment_map_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaigns: {
         Row: {
           account_id: string
@@ -1007,6 +1072,173 @@ export type Database = {
         }
         Relationships: []
       }
+      segment_daily: {
+        Row: {
+          clicks: number | null
+          created_at: string
+          currency: string
+          date: string
+          id: string
+          impressions: number | null
+          purchases: number | null
+          revenue_ga4: number | null
+          revenue_platform: number | null
+          segment_id: string
+          spend: number
+          spend_google: number | null
+          spend_meta: number | null
+          workspace_id: string
+        }
+        Insert: {
+          clicks?: number | null
+          created_at?: string
+          currency?: string
+          date: string
+          id?: string
+          impressions?: number | null
+          purchases?: number | null
+          revenue_ga4?: number | null
+          revenue_platform?: number | null
+          segment_id: string
+          spend?: number
+          spend_google?: number | null
+          spend_meta?: number | null
+          workspace_id: string
+        }
+        Update: {
+          clicks?: number | null
+          created_at?: string
+          currency?: string
+          date?: string
+          id?: string
+          impressions?: number | null
+          purchases?: number | null
+          revenue_ga4?: number | null
+          revenue_platform?: number | null
+          segment_id?: string
+          spend?: number
+          spend_google?: number | null
+          spend_meta?: number | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "segment_daily_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "segment_daily_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      segment_rules: {
+        Row: {
+          created_at: string
+          entity_level: Database["public"]["Enums"]["segment_rule_entity_level"]
+          id: string
+          is_inclusive: boolean
+          platform: Database["public"]["Enums"]["segment_rule_platform"]
+          priority: number
+          rule_type: Database["public"]["Enums"]["segment_rule_type"]
+          rule_value: string
+          segment_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_level?: Database["public"]["Enums"]["segment_rule_entity_level"]
+          id?: string
+          is_inclusive?: boolean
+          platform?: Database["public"]["Enums"]["segment_rule_platform"]
+          priority?: number
+          rule_type: Database["public"]["Enums"]["segment_rule_type"]
+          rule_value: string
+          segment_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_level?: Database["public"]["Enums"]["segment_rule_entity_level"]
+          id?: string
+          is_inclusive?: boolean
+          platform?: Database["public"]["Enums"]["segment_rule_platform"]
+          priority?: number
+          rule_type?: Database["public"]["Enums"]["segment_rule_type"]
+          rule_value?: string
+          segment_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "segment_rules_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "segment_rules_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      segments: {
+        Row: {
+          created_at: string
+          currency: string
+          id: string
+          monthly_budget: number
+          name: string
+          rolling_avg_days: number
+          status: Database["public"]["Enums"]["segment_status"]
+          tolerance_percent: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          id?: string
+          monthly_budget?: number
+          name: string
+          rolling_avg_days?: number
+          status?: Database["public"]["Enums"]["segment_status"]
+          tolerance_percent?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          id?: string
+          monthly_budget?: number
+          name?: string
+          rolling_avg_days?: number
+          status?: Database["public"]["Enums"]["segment_status"]
+          tolerance_percent?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "segments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_runs: {
         Row: {
           details: Json | null
@@ -1021,6 +1253,8 @@ export type Database = {
           retry_count: number | null
           started_at: string
           status: Database["public"]["Enums"]["sync_status"]
+          triggered_by: Database["public"]["Enums"]["sync_trigger"] | null
+          triggered_user_id: string | null
           workspace_id: string
         }
         Insert: {
@@ -1036,6 +1270,8 @@ export type Database = {
           retry_count?: number | null
           started_at?: string
           status?: Database["public"]["Enums"]["sync_status"]
+          triggered_by?: Database["public"]["Enums"]["sync_trigger"] | null
+          triggered_user_id?: string | null
           workspace_id: string
         }
         Update: {
@@ -1051,6 +1287,8 @@ export type Database = {
           retry_count?: number | null
           started_at?: string
           status?: Database["public"]["Enums"]["sync_status"]
+          triggered_by?: Database["public"]["Enums"]["sync_trigger"] | null
+          triggered_user_id?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -1227,7 +1465,13 @@ export type Database = {
       integration_provider: "meta" | "google_ads" | "ga4"
       integration_status: "connected" | "degraded" | "disconnected"
       revenue_source: "shopify" | "manual" | "csv" | "erp"
+      segment_match_status: "assigned" | "unassigned" | "conflict"
+      segment_rule_entity_level: "campaign"
+      segment_rule_platform: "meta" | "google_ads" | "any"
+      segment_rule_type: "contains" | "starts_with" | "regex" | "in_list"
+      segment_status: "active" | "inactive"
       sync_status: "running" | "success" | "partial" | "error"
+      sync_trigger: "cron" | "manual"
       workspace_member_status: "active" | "invited" | "disabled"
       workspace_status: "active" | "paused"
     }
@@ -1404,7 +1648,13 @@ export const Constants = {
       integration_provider: ["meta", "google_ads", "ga4"],
       integration_status: ["connected", "degraded", "disconnected"],
       revenue_source: ["shopify", "manual", "csv", "erp"],
+      segment_match_status: ["assigned", "unassigned", "conflict"],
+      segment_rule_entity_level: ["campaign"],
+      segment_rule_platform: ["meta", "google_ads", "any"],
+      segment_rule_type: ["contains", "starts_with", "regex", "in_list"],
+      segment_status: ["active", "inactive"],
       sync_status: ["running", "success", "partial", "error"],
+      sync_trigger: ["cron", "manual"],
       workspace_member_status: ["active", "invited", "disabled"],
       workspace_status: ["active", "paused"],
     },
