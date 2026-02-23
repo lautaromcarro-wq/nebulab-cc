@@ -11,6 +11,7 @@ import Auth from "@/pages/Auth";
 import Home from "@/pages/Home";
 import SegmentsSettings from "@/pages/SegmentsSettings";
 import Placeholder from "@/pages/Placeholder";
+import Connections from "@/pages/Connections";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,7 +40,7 @@ const App = () => (
               <Route path="/finance" element={<Placeholder title="Finance & Unit Economics" />} />
               <Route path="/changelog" element={<Placeholder title="Bitácora" />} />
               <Route path="/experiments" element={<Placeholder title="Experiments Board" />} />
-              <Route path="/connections" element={<Placeholder title="Connections" />} />
+              <Route path="/connections" element={<Connections />} />
               <Route path="/settings/segments" element={<SegmentsSettings />} />
             </Route>
             <Route path="*" element={<NotFound />} />
