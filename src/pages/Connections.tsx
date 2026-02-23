@@ -50,7 +50,10 @@ export default function Connections() {
 
   // Fetch integration + accounts
   useEffect(() => {
-    if (!currentWorkspace) return;
+    if (!currentWorkspace) {
+      setLoading(false);
+      return;
+    }
 
     const fetchData = async () => {
       setLoading(true);
@@ -142,7 +145,9 @@ export default function Connections() {
         </CardHeader>
 
         <CardContent>
-          {loading ? (
+          {!currentWorkspace ? (
+            <p className="text-sm text-muted-foreground">Seleccioná un workspace para gestionar conexiones.</p>
+          ) : loading ? (
             <p className="text-sm text-muted-foreground">Cargando…</p>
           ) : metaIntegration ? (
             <div className="space-y-4">
