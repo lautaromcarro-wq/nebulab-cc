@@ -11,12 +11,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Shield, Activity, Settings2 } from "lucide-react";
+import { Shield, Activity, Settings2, Database, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 
 const LIMITS = {
   CRON_MAX_DAYS_BACK: 3,
-  MANUAL_MAX_DAYS_BACK: 30,
+  MANUAL_MAX_DAYS_BACK: 90,
   MAX_RUNTIME_SEC: 120,
   MAX_ROWS_PER_RUN: 20_000,
   MAX_API_PAGES: 50,
@@ -48,6 +48,13 @@ interface RiskEvent {
   created_at: string;
 }
 
+interface DataCoverage {
+  min_date: string | null;
+  max_date: string | null;
+  row_count: number;
+  currencies: string[];
+}
+
 const SEVERITY_COLORS: Record<string, string> = {
   info: "bg-blue-500/15 text-blue-600 border-blue-500/30",
   warn: "bg-amber-500/15 text-amber-600 border-amber-500/30",
@@ -65,14 +72,15 @@ export default function AdminOps() {
   const { currentWorkspace } = useWorkspace();
   const [syncRuns, setSyncRuns] = useState<SyncRun[]>([]);
   const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
+  const [coverage, setCoverage] = useState<DataCoverage | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!currentWorkspace) return;
 
-    const fetch = async () => {
+    const fetchAll = async () => {
       setLoading(true);
-      const [runsRes, eventsRes] = await Promise.all([
+      const [runsRes, eventsRes, perfRes] = await Promise.all([
         supabase
           .from("sync_runs")
           .select("*")
@@ -85,27 +93,109 @@ export default function AdminOps() {
           .eq("workspace_id", currentWorkspace.id)
           .order("created_at", { ascending: false })
           .limit(50),
+        supabase
+          .from("performance_daily")
+          .select("date")
+          .eq("workspace_id", currentWorkspace.id)
+          .order("date", { ascending: true }),
       ]);
+
       setSyncRuns((runsRes.data as unknown as SyncRun[]) ?? []);
       setRiskEvents((eventsRes.data as unknown as RiskEvent[]) ?? []);
+
+      // Compute coverage from performance_daily rows
+      const perfRows = perfRes.data ?? [];
+      if (perfRows.length > 0) {
+        const dates = perfRows.map((r) => r.date);
+        setCoverage({
+          min_date: dates[0],
+          max_date: dates[dates.length - 1],
+          row_count: perfRows.length,
+          currencies: [], // filled below
+        });
+      } else {
+        setCoverage({ min_date: null, max_date: null, row_count: 0, currencies: [] });
+      }
+
+      // Check distinct currencies
+      const { data: currData } = await supabase
+        .from("accounts")
+        .select("currency")
+        .eq("workspace_id", currentWorkspace.id)
+        .not("currency", "is", null);
+      const currencies = [...new Set((currData ?? []).map((r) => r.currency).filter(Boolean))] as string[];
+      setCoverage((prev) => prev ? { ...prev, currencies } : prev);
+
       setLoading(false);
     };
 
-    fetch();
+    fetchAll();
   }, [currentWorkspace]);
 
   if (loading) {
     return <div className="animate-pulse text-muted-foreground p-8">Cargando…</div>;
   }
 
+  const today = new Date().toISOString().split("T")[0];
+  const yesterday = new Date(Date.now() - 86400_000).toISOString().split("T")[0];
+  const currentMonth = new Date();
+  const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+
+  const coverageStale = coverage?.max_date ? coverage.max_date < yesterday : true;
+  const coverageLow = coverage ? coverage.row_count < daysInMonth * 0.8 : true; // rough check
+  const multiCurrency = (coverage?.currencies.length ?? 0) > 1;
+
   return (
     <div className="space-y-6 max-w-6xl">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Ops & Guardrails</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Monitor de sincronización y eventos de riesgo.
+          Monitor de sincronización, cobertura de datos y eventos de riesgo.
         </p>
       </div>
+
+      {/* Data Coverage */}
+      <Card className={coverageStale || coverageLow || multiCurrency ? "border-amber-500/50" : ""}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            Data Coverage
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <span className="text-muted-foreground text-xs">Min date</span>
+              <p className="font-semibold">{coverage?.min_date ?? "—"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground text-xs">Max date</span>
+              <p className="font-semibold">{coverage?.max_date ?? "—"}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground text-xs">Rows (performance_daily)</span>
+              <p className="font-semibold">{coverage?.row_count.toLocaleString() ?? 0}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground text-xs">Currencies</span>
+              <p className="font-semibold">{coverage?.currencies.join(", ") || "—"}</p>
+            </div>
+          </div>
+
+          {coverageStale && (
+            <div className="flex items-center gap-2 text-amber-600 text-xs">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>Datos desactualizados: max(date) &lt; ayer ({yesterday}). Ejecutá un sync o backfill.</span>
+            </div>
+          )}
+          {multiCurrency && (
+            <div className="flex items-center gap-2 text-amber-600 text-xs">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>Múltiples monedas detectadas: {coverage?.currencies.join(", ")}. No se convierte automáticamente.</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Current Limits */}
       <Card>

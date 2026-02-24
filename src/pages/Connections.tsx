@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Integration = Tables<"integrations">;
@@ -28,6 +30,9 @@ export default function Connections() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [backfillDays, setBackfillDays] = useState(30);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
 
   // Handle OAuth redirect result
   useEffect(() => {
@@ -137,7 +142,7 @@ export default function Connections() {
     setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("sync-meta-daily", {
-        body: { workspace_id: currentWorkspace.id, days_back: 30 },
+        body: { workspace_id: currentWorkspace.id, days_back: 3 },
       });
       if (error) throw error;
       toast({
@@ -152,6 +157,33 @@ export default function Connections() {
       });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleBackfillMeta = async () => {
+    if (!currentWorkspace || !session) return;
+    const days = Math.min(Math.max(1, backfillDays), 90);
+    setBackfilling(true);
+    setBackfillStatus("started");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-meta-daily", {
+        body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
+      });
+      if (error) throw error;
+      setBackfillStatus(`success: ${data?.upserted ?? 0} rows, ${data?.pages ?? 0} pages`);
+      toast({
+        title: "Backfill completado",
+        description: `${data?.upserted ?? 0} registros sincronizados (${days} días).${data?.hit_limit ? " ⚠️ Hit limit." : ""}`,
+      });
+    } catch (err) {
+      setBackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
+      toast({
+        title: "Error en backfill",
+        description: err instanceof Error ? err.message : "No se pudo ejecutar el backfill",
+        variant: "destructive",
+      });
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -231,6 +263,45 @@ export default function Connections() {
                 </div>
               </div>
 
+              {/* Backfill control */}
+              {isAdmin && metaIntegration.status === "connected" && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Backfill Meta</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-muted-foreground text-xs cursor-help">(?)</span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-xs">
+                        Sincroniza datos históricos de Meta Ads. Máximo 90 días. Cooldown: 1 backfill manual cada 6 horas.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={backfillDays}
+                      onChange={(e) => setBackfillDays(Number(e.target.value))}
+                      className="w-24 h-8 text-sm"
+                      placeholder="days"
+                    />
+                    <span className="text-xs text-muted-foreground">días</span>
+                    <Button size="sm" variant="outline" onClick={handleBackfillMeta} disabled={backfilling}>
+                      {backfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                      Run Backfill
+                    </Button>
+                  </div>
+                  {backfillStatus && (
+                    <p className={`text-xs ${backfillStatus.startsWith("fail") ? "text-destructive" : "text-muted-foreground"}`}>
+                      Status: {backfillStatus}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {metaAccounts.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">
@@ -278,6 +349,44 @@ export default function Connections() {
                 : "Pedile a un admin que conecte Meta Ads."}
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Google Ads Card - Coming Soon */}
+      <Card className="opacity-75">
+        <CardHeader className="flex flex-row items-start justify-between space-y-0">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Plug className="h-5 w-5" />
+              Google Ads
+            </CardTitle>
+            <CardDescription>Search, Display, Shopping & YouTube Ads</CardDescription>
+          </div>
+          <Badge variant="outline" className="text-xs">Coming next</Badge>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Requiere: OAuth Client ID/Secret, Developer Token. Scopes: <code className="text-xs font-mono">adwords</code>.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* GA4 Card - Coming Soon */}
+      <Card className="opacity-75">
+        <CardHeader className="flex flex-row items-start justify-between space-y-0">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Plug className="h-5 w-5" />
+              Google Analytics 4
+            </CardTitle>
+            <CardDescription>Sessions, Transactions & Revenue</CardDescription>
+          </div>
+          <Badge variant="outline" className="text-xs">Coming next</Badge>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Requiere: OAuth Client ID/Secret. Scopes: <code className="text-xs font-mono">analytics.readonly</code>.
+          </p>
         </CardContent>
       </Card>
     </div>
