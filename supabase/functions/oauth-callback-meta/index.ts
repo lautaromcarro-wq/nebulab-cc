@@ -70,7 +70,7 @@ serve(async (req) => {
         workspace_id,
         provider: 'meta',
         status: 'connected',
-        scopes: ['ads_read', 'read_insights', 'business_management'],
+        scopes: ['ads_read', 'business_management'],
         token_expires_at: expiresAt,
         token_health: { last_check: new Date().toISOString(), status: 'ok' },
       }, { onConflict: 'workspace_id,provider' })
@@ -93,7 +93,7 @@ serve(async (req) => {
           .from('integrations')
           .update({
             status: 'connected',
-            scopes: ['ads_read', 'read_insights', 'business_management'],
+            scopes: ['ads_read', 'business_management'],
             token_expires_at: expiresAt,
             token_health: { last_check: new Date().toISOString(), status: 'ok' },
           })
@@ -106,7 +106,7 @@ serve(async (req) => {
             workspace_id,
             provider: 'meta',
             status: 'connected',
-            scopes: ['ads_read', 'read_insights', 'business_management'],
+            scopes: ['ads_read', 'business_management'],
             token_expires_at: expiresAt,
             token_health: { last_check: new Date().toISOString(), status: 'ok' },
           })

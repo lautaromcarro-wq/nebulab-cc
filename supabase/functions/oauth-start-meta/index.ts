@@ -22,7 +22,7 @@ serve(async (req) => {
 
     const redirectUri = `${SUPABASE_URL}/functions/v1/oauth-callback-meta`;
     const state = btoa(JSON.stringify({ workspace_id }));
-    const scopes = 'ads_read,read_insights,business_management';
+    const scopes = 'ads_read,business_management';
 
     const authUrl = new URL('https://www.facebook.com/v21.0/dialog/oauth');
     authUrl.searchParams.set('client_id', META_APP_ID);
