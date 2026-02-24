@@ -134,8 +134,7 @@ async function executeJob(
 
     // ── Stubs: these log a sync_run but don't do real API work yet ──
     case "sync_meta_accounts":
-    case "sync_meta_catalog":
-    case "sync_meta_daily_metrics": {
+    case "sync_meta_catalog": {
       // Check if workspace has a connected Meta integration
       const { data: integration } = await supabase
         .from("integrations")
@@ -147,8 +146,37 @@ async function executeJob(
       if (!integration) {
         return { items_upserted: 0, details: { skipped: true, reason: "no_connected_integration" } };
       }
-      // TODO: implement actual Meta API sync
+      // TODO: implement actual Meta catalog sync
       return { items_upserted: 0, details: { stub: true, integration_id: integration.id } };
+    }
+
+    case "sync_meta_daily_metrics": {
+      // Call the real sync-meta-daily edge function
+      const { data: metaInt } = await supabase
+        .from("integrations")
+        .select("id, status")
+        .eq("workspace_id", workspaceId)
+        .eq("provider", "meta")
+        .eq("status", "connected")
+        .maybeSingle();
+      if (!metaInt) {
+        return { items_upserted: 0, details: { skipped: true, reason: "no_connected_integration" } };
+      }
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/sync-meta-daily`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ workspace_id: workspaceId, days_back: 3 }),
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || "sync-meta-daily failed");
+      return { items_upserted: data.upserted ?? 0, details: { errors: data.errors } };
     }
 
     case "sync_google_accounts":
