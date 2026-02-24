@@ -9,6 +9,7 @@ import {
   Plug,
   Settings,
   LogOut,
+  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -25,6 +26,7 @@ const navItems = [
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/connections", label: "Connections", icon: Plug },
   { to: "/settings/segments", label: "Segments", icon: Settings },
+  { to: "/admin/ops", label: "Ops", icon: ShieldAlert },
 ];
 
 const AppLayout = () => {

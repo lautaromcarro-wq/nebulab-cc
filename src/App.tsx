@@ -12,6 +12,7 @@ import Home from "@/pages/Home";
 import SegmentsSettings from "@/pages/SegmentsSettings";
 import Placeholder from "@/pages/Placeholder";
 import Connections from "@/pages/Connections";
+import AdminOps from "@/pages/AdminOps";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -42,6 +43,7 @@ const App = () => (
               <Route path="/experiments" element={<Placeholder title="Experiments Board" />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/settings/segments" element={<SegmentsSettings />} />
+              <Route path="/admin/ops" element={<AdminOps />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
