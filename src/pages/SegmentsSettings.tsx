@@ -53,6 +53,7 @@ const SegmentsSettings = () => {
   const [mappings, setMappings] = useState<CampaignMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [recomputing, setRecomputing] = useState(false);
+  const [recomputingDaily, setRecomputingDaily] = useState(false);
 
   // Form states
   const [segDialogOpen, setSegDialogOpen] = useState(false);
@@ -196,6 +197,21 @@ const SegmentsSettings = () => {
     setRecomputing(false);
   };
 
+  const recomputeSegmentDaily = async () => {
+    setRecomputingDaily(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("compute-segment-daily", {
+        body: { workspace_id: wsId, days_back: 30 },
+      });
+      if (error) throw error;
+      toast.success(`Segments recomputados: ${data?.upserted ?? 0} filas, ${data?.conflicts ?? 0} conflictos`);
+      fetchAll();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Error al recomputar segments");
+    }
+    setRecomputingDaily(false);
+  };
+
   const conflicts = mappings.filter((m) => m.match_status === "conflict");
   const unassigned = mappings.filter((m) => m.match_status === "unassigned");
   const assigned = mappings.filter((m) => m.match_status === "assigned");
@@ -214,6 +230,10 @@ const SegmentsSettings = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={recomputeSegmentDaily} disabled={recomputingDaily}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputingDaily ? "animate-spin" : ""}`} />
+            Recompute Segments (30d)
+          </Button>
           <Button variant="outline" size="sm" onClick={recompute} disabled={recomputing}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputing ? "animate-spin" : ""}`} />
             Recompute mapping
