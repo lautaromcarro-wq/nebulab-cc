@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Integration = Tables<"integrations">;
@@ -27,6 +27,7 @@ export default function Connections() {
   const [metaAccounts, setMetaAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Handle OAuth redirect result
   useEffect(() => {
@@ -131,6 +132,29 @@ export default function Connections() {
     }
   };
 
+  const handleSyncMeta = async () => {
+    if (!currentWorkspace || !session) return;
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-meta-daily", {
+        body: { workspace_id: currentWorkspace.id, days_back: 30 },
+      });
+      if (error) throw error;
+      toast({
+        title: "Sync completado",
+        description: `Se insertaron ${data?.upserted ?? 0} registros en performance_daily.${data?.errors?.length ? ` (${data.errors.length} errores)` : ""}`,
+      });
+    } catch (err) {
+      toast({
+        title: "Error al sincronizar",
+        description: err instanceof Error ? err.message : "No se pudo ejecutar la sincronización",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const isAdmin = workspaceRole === "admin";
   const statusKey = metaIntegration?.status ?? "disconnected";
   const statusInfo = STATUS_CONFIG[statusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
@@ -159,6 +183,18 @@ export default function Connections() {
               <StatusIcon className="h-3 w-3 mr-1" />
               {statusInfo.label}
             </Badge>
+
+            {isAdmin && metaIntegration?.status === "connected" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSyncMeta}
+                disabled={syncing || loading}
+              >
+                {syncing ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                {syncing ? "Sincronizando…" : "Sync Now"}
+              </Button>
+            )}
 
             {isAdmin && (
               <Button
