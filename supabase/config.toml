@@ -2,3 +2,9 @@ project_id = "hagggvnmwsnshkofhmmq"
 
 [functions.oauth-callback-meta]
 verify_jwt = false
+
+[functions.oauth-callback-google-ads]
+verify_jwt = false
+
+[functions.oauth-callback-ga4]
+verify_jwt = false

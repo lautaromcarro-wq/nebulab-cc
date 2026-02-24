@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DollarSign,
   TrendingUp,
@@ -31,7 +32,7 @@ const pacingConfig = {
 };
 
 const Home = () => {
-  const { segments, loading: wsLoading } = useWorkspace();
+  const { segments, loading: wsLoading, currentWorkspace } = useWorkspace();
   const { data, isLoading } = useScorecard();
 
   const loading = wsLoading || isLoading;
@@ -88,7 +89,7 @@ const Home = () => {
       {/* Segment cards */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {cards.map((card) => (
-          <SegmentCard key={card.segmentId} card={card} />
+          <SegmentCard key={card.segmentId} card={card} workspaceCurrency={currentWorkspace?.currency ?? "USD"} />
         ))}
       </div>
     </div>
@@ -111,19 +112,34 @@ function KpiCard({ icon: Icon, label, value }: { icon: React.ElementType; label:
   );
 }
 
-function SegmentCard({ card }: { card: SegmentScorecard }) {
+function SegmentCard({ card, workspaceCurrency }: { card: SegmentScorecard; workspaceCurrency: string }) {
+  const currencyMismatch = card.currency !== workspaceCurrency;
   const pacing = pacingConfig[card.pacingStatus];
   const PacingIcon = pacing.icon;
 
   return (
     <Card className="shadow-sm">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base font-semibold">{card.segmentName}</CardTitle>
-          <Badge variant="outline" className={cn("text-[10px] font-medium gap-1", pacing.className)}>
-            <PacingIcon className="h-3 w-3" />
-            {pacing.label}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {currencyMismatch && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20">
+                    ⚠ {card.currency}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs text-xs">
+                  Moneda del segmento ({card.currency}) distinta a la del workspace ({workspaceCurrency}). No se convierte automáticamente.
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Badge variant="outline" className={cn("text-[10px] font-medium gap-1", pacing.className)}>
+              <PacingIcon className="h-3 w-3" />
+              {pacing.label}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

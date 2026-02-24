@@ -29,6 +29,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Trash2, RefreshCw, AlertTriangle, HelpCircle } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -169,15 +170,34 @@ const SegmentsSettings = () => {
       priority: Number(ruleForm.priority),
     });
     if (error) return toast.error(error.message);
-    toast.success("Regla creada");
+    toast.success("Regla creada — recomputando mapping…");
     setRuleDialogOpen(false);
+
+    // Auto-recompute mapping after rule change
+    try {
+      const { data } = await supabase.functions.invoke("compute-campaign-segment-map", {
+        body: { workspace_id: wsId },
+      });
+      const assigned = data?.processed ?? 0;
+      const unassignedCount = data?.unassigned ?? 0;
+      toast.success(`Mapping actualizado: ${assigned} campañas procesadas, ${unassignedCount} sin asignar`);
+    } catch {
+      toast.error("No se pudo recomputar el mapping automáticamente");
+    }
     fetchAll();
   };
 
   const deleteRule = async (id: string) => {
     const { error } = await supabase.from("segment_rules").delete().eq("id", id);
     if (error) return toast.error(error.message);
-    toast.success("Regla eliminada");
+    toast.success("Regla eliminada — recomputando mapping…");
+
+    // Auto-recompute mapping after rule deletion
+    try {
+      await supabase.functions.invoke("compute-campaign-segment-map", {
+        body: { workspace_id: wsId },
+      });
+    } catch { /* silent */ }
     fetchAll();
   };
 
@@ -200,6 +220,14 @@ const SegmentsSettings = () => {
   const recomputeSegmentDaily = async () => {
     setRecomputingDaily(true);
     try {
+      // Step 1: Always recompute mapping first
+      toast.info("Paso 1/2: Recomputando mapping…");
+      await supabase.functions.invoke("compute-campaign-segment-map", {
+        body: { workspace_id: wsId },
+      });
+
+      // Step 2: Then compute segment_daily
+      toast.info("Paso 2/2: Agregando métricas por segmento…");
       const { data, error } = await supabase.functions.invoke("compute-segment-daily", {
         body: { workspace_id: wsId, days_back: 30 },
       });
@@ -229,15 +257,29 @@ const SegmentsSettings = () => {
             Configurá segmentos multi-marca y reglas de clasificación por campaign naming.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={recomputeSegmentDaily} disabled={recomputingDaily}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputingDaily ? "animate-spin" : ""}`} />
-            Recompute Segments (30d)
-          </Button>
-          <Button variant="outline" size="sm" onClick={recompute} disabled={recomputing}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputing ? "animate-spin" : ""}`} />
-            Recompute mapping
-          </Button>
+        <div className="flex gap-2 items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={recomputeSegmentDaily} disabled={recomputingDaily}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputingDaily ? "animate-spin" : ""}`} />
+                Recompute Segments (30d)
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs">
+              Primero recalcula el mapping (qué campañas pertenecen a qué segmento según las reglas) y luego agrega las métricas en segment_daily (spend, clicks, etc.) por segmento y día.
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={recompute} disabled={recomputing}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputing ? "animate-spin" : ""}`} />
+                Recompute mapping
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs">
+              Solo recalcula campaign_segment_map: clasifica cada campaña según las reglas y muestra assigned/unassigned/conflict. No afecta métricas.
+            </TooltipContent>
+          </Tooltip>
           {isAdmin && (
             <Dialog open={segDialogOpen} onOpenChange={setSegDialogOpen}>
               <DialogTrigger asChild>

@@ -9,7 +9,7 @@ const corsHeaders = {
 // ── Hard limits ──
 const LIMITS = {
   CRON_MAX_DAYS_BACK: 3,
-  MANUAL_MAX_DAYS_BACK: 30,
+  MANUAL_MAX_DAYS_BACK: 90,
   MAX_RUNTIME_MS: 120_000,
   MAX_ROWS_PER_RUN: 20_000,
   MAX_API_PAGES: 50,
