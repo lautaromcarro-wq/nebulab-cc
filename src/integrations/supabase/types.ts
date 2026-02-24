@@ -1072,6 +1072,47 @@ export type Database = {
         }
         Relationships: []
       }
+      risk_events: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          message: string
+          metadata_json: Json | null
+          provider: string
+          severity: string
+          workspace_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          message: string
+          metadata_json?: Json | null
+          provider: string
+          severity?: string
+          workspace_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          message?: string
+          metadata_json?: Json | null
+          provider?: string
+          severity?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "risk_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       segment_daily: {
         Row: {
           clicks: number | null
@@ -1232,6 +1273,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "segments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sync_locks: {
+        Row: {
+          created_at: string
+          id: string
+          job_name: string
+          lock_reason: string | null
+          locked_until: string
+          provider: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          job_name: string
+          lock_reason?: string | null
+          locked_until: string
+          provider: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          job_name?: string
+          lock_reason?: string | null
+          locked_until?: string
+          provider?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_locks_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
