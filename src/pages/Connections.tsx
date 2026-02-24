@@ -79,6 +79,31 @@ export default function Connections() {
     fetchData();
   }, [currentWorkspace, searchParams]);
 
+  // Listen for popup OAuth completion
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== 'oauth-complete' || event.data?.provider !== 'meta') return;
+      if (event.data.status === 'success') {
+        toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
+      } else {
+        toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
+      }
+      setConnecting(false);
+      // Re-fetch data
+      setLoading(true);
+      Promise.all([
+        supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace!.id).eq("provider", "meta").maybeSingle(),
+        supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace!.id).eq("provider", "meta").order("name"),
+      ]).then(([intRes, accRes]) => {
+        setMetaIntegration(intRes.data);
+        setMetaAccounts(accRes.data ?? []);
+        setLoading(false);
+      });
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [currentWorkspace]);
+
   const handleConnectMeta = async () => {
     if (!currentWorkspace || !session) return;
     setConnecting(true);
@@ -90,7 +115,11 @@ export default function Connections() {
 
       if (error) throw error;
       if (data?.url) {
-        window.location.href = data.url;
+        const popup = window.open(data.url, 'meta-oauth', 'width=600,height=700,scrollbars=yes');
+        if (!popup) {
+          // Popup blocked — fall back to top-level navigation
+          window.location.href = data.url;
+        }
       }
     } catch (err) {
       toast({

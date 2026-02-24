@@ -252,21 +252,37 @@ async function logSyncRun(
 }
 
 function redirectToApp(status: string): Response {
-  const appUrl = Deno.env.get('APP_URL') || 'https://nebulab-command-center.lovable.app';
-  return new Response(null, {
-    status: 302,
-    headers: { Location: `${appUrl}/connections?oauth=meta&status=${status}` },
+  // Return an HTML page that posts a message to the opener and closes the popup
+  const html = `<!DOCTYPE html><html><body><script>
+    if (window.opener) {
+      window.opener.postMessage({ type: 'oauth-complete', provider: 'meta', status: '${status}' }, '*');
+      window.close();
+    } else {
+      var appUrl = '${Deno.env.get('APP_URL') || 'https://nebulab-command-center.lovable.app'}';
+      window.location.href = appUrl + '/connections?oauth=meta&status=${status}';
+    }
+  </script></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html' },
   });
 }
 
 function redirectWithError(message: string): Response {
-  const appUrl = Deno.env.get('APP_URL') || 'https://nebulab-command-center.lovable.app';
   logSyncRunDirect(message);
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: `${appUrl}/connections?oauth=meta&status=error&message=${encodeURIComponent(message)}`,
-    },
+  const encodedMsg = encodeURIComponent(message);
+  const html = `<!DOCTYPE html><html><body><script>
+    if (window.opener) {
+      window.opener.postMessage({ type: 'oauth-complete', provider: 'meta', status: 'error', message: decodeURIComponent('${encodedMsg}') }, '*');
+      window.close();
+    } else {
+      var appUrl = '${Deno.env.get('APP_URL') || 'https://nebulab-command-center.lovable.app'}';
+      window.location.href = appUrl + '/connections?oauth=meta&status=error&message=${encodedMsg}';
+    }
+  </script></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html' },
   });
 }
 
