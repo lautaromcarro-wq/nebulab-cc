@@ -170,7 +170,7 @@ async function executeJob(
             "Content-Type": "application/json",
             Authorization: `Bearer ${serviceKey}`,
           },
-          body: JSON.stringify({ workspace_id: workspaceId, days_back: 3 }),
+          body: JSON.stringify({ workspace_id: workspaceId, days_back: 3, triggered_by: "cron" }),
         }
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);

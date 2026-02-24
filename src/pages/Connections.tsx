@@ -170,11 +170,23 @@ export default function Connections() {
         body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
       });
       if (error) throw error;
-      setBackfillStatus(`success: ${data?.upserted ?? 0} rows, ${data?.pages ?? 0} pages`);
-      toast({
-        title: "Backfill completado",
-        description: `${data?.upserted ?? 0} registros sincronizados (${days} días).${data?.hit_limit ? " ⚠️ Hit limit." : ""}`,
-      });
+      // Check if the function returned errors (cooldown, rate limit, etc.)
+      if (data?.errors?.length && data?.upserted === 0) {
+        const errMsg = data.errors[0];
+        const isCooldown = errMsg.includes("cooldown") || errMsg.includes("rate limit") || errMsg.includes("locked");
+        setBackfillStatus(`bloqueado: ${errMsg}`);
+        toast({
+          title: isCooldown ? "Backfill en cooldown" : "Backfill con errores",
+          description: errMsg,
+          variant: "destructive",
+        });
+      } else {
+        setBackfillStatus(`success: ${data?.upserted ?? 0} rows, ${data?.pages ?? 0} pages`);
+        toast({
+          title: "Backfill completado",
+          description: `${data?.upserted ?? 0} registros sincronizados (${days} días).${data?.hit_limit ? " ⚠️ Hit limit." : ""}`,
+        });
+      }
     } catch (err) {
       setBackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
       toast({
