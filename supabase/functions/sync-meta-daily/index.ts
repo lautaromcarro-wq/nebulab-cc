@@ -140,11 +140,50 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const { data: accounts } = await supabase
+        // ── Fetch all active accounts ──
+        const { data: allAccounts } = await supabase
           .from("accounts").select("id, external_account_id, metadata")
           .eq("workspace_id", wsId).eq("provider", "meta").eq("status", "active");
 
-        if (!accounts?.length) continue;
+        if (!allAccounts?.length) continue;
+
+        // ── Filter by allowlist (meta_allowed_businesses / meta_allowed_accounts) ──
+        const { data: allowedBiz } = await supabase
+          .from("meta_allowed_businesses").select("business_id, enabled")
+          .eq("workspace_id", wsId);
+        const { data: allowedAccts } = await supabase
+          .from("meta_allowed_accounts").select("account_id, enabled")
+          .eq("workspace_id", wsId);
+
+        const bizMap = new Map((allowedBiz ?? []).map((b: { business_id: string; enabled: boolean }) => [b.business_id, b.enabled]));
+        const acctMap = new Map((allowedAccts ?? []).map((a: { account_id: string; enabled: boolean }) => [a.account_id, a.enabled]));
+        const hasAnyAllowlistConfig = bizMap.size > 0 || acctMap.size > 0;
+
+        const accounts = hasAnyAllowlistConfig
+          ? allAccounts.filter((acct: { id: string; metadata: Record<string, unknown> | null }) => {
+              // Per-account override takes priority
+              if (acctMap.has(acct.id)) return acctMap.get(acct.id);
+              // Then check business-level
+              const meta = acct.metadata as Record<string, unknown> | null;
+              const bizId = meta?.business_id as string | undefined;
+              if (bizId && bizMap.has(bizId)) return bizMap.get(bizId);
+              // If allowlist exists but this account isn't in it, exclude
+              return false;
+            })
+          : allAccounts; // No allowlist config = sync all (backwards compatible)
+
+        const excludedCount = allAccounts.length - accounts.length;
+
+        if (!accounts.length) {
+          errors.push(`Workspace ${wsId}: no enabled accounts (${allAccounts.length} total, ${excludedCount} excluded by allowlist)`);
+          await supabase.from("sync_runs").insert({
+            workspace_id: wsId, provider: PROVIDER, integration_id: integration.id,
+            job_name: JOB_NAME, status: "error", items_upserted: 0,
+            details: { skipped: true, reason: "no_enabled_businesses", total_accounts: allAccounts.length, excluded: excludedCount },
+            ended_at: new Date().toISOString(), triggered_by: triggeredBy,
+          });
+          continue;
+        }
 
         const endDate = new Date();
         const startDate = new Date();
@@ -363,6 +402,8 @@ Deno.serve(async (req) => {
           items_upserted: totalUpserted,
           details: {
             days_back: daysBack, pages_fetched: totalPages, hit_limit: hitLimit,
+            synced_accounts: accounts.map((a: { id: string }) => a.id),
+            excluded_accounts: excludedCount,
             failed_accounts: failedAccounts.length > 0 ? failedAccounts : undefined,
             errors: errors.length > 0 ? errors : undefined,
             duration_ms: Date.now() - startTime,

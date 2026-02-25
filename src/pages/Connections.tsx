@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2, ToggleLeft, ToggleRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import type { Tables, Json } from "@/integrations/supabase/types";
 
 type Integration = Tables<"integrations">;
 type Account = Tables<"accounts">;
+
+type AllowedBusiness = { id: string; workspace_id: string; business_id: string; business_name: string; enabled: boolean };
+type AllowedAccount = { id: string; workspace_id: string; account_id: string; account_name: string; enabled: boolean };
 
 const STATUS_CONFIG = {
   connected: { label: "Connected", icon: CheckCircle2, variant: "default" as const, className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
@@ -40,7 +43,6 @@ function getAccountSyncStatus(metadata: Json | null): { status: string; message:
   return { status: syncStatus === "ok" ? "ok" : "unknown", message: null, lastError: null };
 }
 
-/** Parse OAuth URL for diagnostic display */
 function parseOAuthDiagnostics(url: string) {
   try {
     const parsed = new URL(url);
@@ -61,28 +63,20 @@ function parseOAuthDiagnostics(url: string) {
   }
 }
 
-/** Default: open in new tab */
 function openAuthWindow(url: string): boolean {
   const win = window.open(url, "_blank", "noopener,noreferrer");
   return !!win;
 }
 
-/** Fallback: top-level redirect */
 function navigateTopLevel(url: string) {
   if (window.self !== window.top) {
-    try {
-      window.top!.location.href = url;
-      return;
-    } catch { /* cross-origin fallback */ }
+    try { window.top!.location.href = url; return; } catch { /* cross-origin */ }
   }
   window.location.assign(url);
 }
 
 type DiagResult = {
-  account_id: string;
-  external_id: string;
-  name: string;
-  status: string;
+  account_id: string; external_id: string; name: string; status: string;
   error: { code?: string; subcode?: string; message?: string; fbtrace_id?: string } | null;
   business: { id: string; name: string } | null;
 };
@@ -101,37 +95,38 @@ export default function Connections() {
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
   const [oauthDiag, setOauthDiag] = useState<{ url: string; diag: ReturnType<typeof parseOAuthDiagnostics> } | null>(null);
   const [oauthBlocked, setOauthBlocked] = useState(false);
-  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [diagRunning, setDiagRunning] = useState(false);
   const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null);
 
-  const refreshData = async () => {
+  // BM/Account allowlist state
+  const [allowedBusinesses, setAllowedBusinesses] = useState<AllowedBusiness[]>([]);
+  const [allowedAccounts, setAllowedAccounts] = useState<AllowedAccount[]>([]);
+  const [savingAllowlist, setSavingAllowlist] = useState(false);
+
+  const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
     setLoading(true);
-    const [intRes, accRes] = await Promise.all([
+    const [intRes, accRes, bizRes, acctRes] = await Promise.all([
       supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").maybeSingle(),
       supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").order("name"),
+      supabase.from("meta_allowed_businesses").select("*").eq("workspace_id", currentWorkspace.id).order("business_name"),
+      supabase.from("meta_allowed_accounts").select("*").eq("workspace_id", currentWorkspace.id),
     ]);
     setMetaIntegration(intRes.data);
     setMetaAccounts(accRes.data ?? []);
+    setAllowedBusinesses((bizRes.data as AllowedBusiness[] | null) ?? []);
+    setAllowedAccounts((acctRes.data as AllowedAccount[] | null) ?? []);
     setLoading(false);
-  };
+  }, [currentWorkspace]);
 
-  // Handle OAuth redirect result
   useEffect(() => {
     const oauthProvider = searchParams.get("oauth");
     const status = searchParams.get("status");
     const message = searchParams.get("message");
-
     if (oauthProvider === "meta") {
-      if (status === "success") {
-        toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
-      } else if (status === "error") {
-        toast({ title: "Error al conectar Meta", description: message || "Ocurrió un error.", variant: "destructive" });
-      }
-      searchParams.delete("oauth");
-      searchParams.delete("status");
-      searchParams.delete("message");
+      if (status === "success") toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
+      else if (status === "error") toast({ title: "Error al conectar Meta", description: message || "Ocurrió un error.", variant: "destructive" });
+      searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message");
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
@@ -139,46 +134,32 @@ export default function Connections() {
   useEffect(() => {
     if (!currentWorkspace) { setLoading(false); return; }
     refreshData();
-  }, [currentWorkspace, searchParams]);
+  }, [currentWorkspace, refreshData]);
 
-  // Listen for popup OAuth completion
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== 'oauth-complete' || event.data?.provider !== 'meta') return;
-      if (event.data.status === 'success') {
-        toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
-      } else {
-        toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
-      }
-      setConnecting(false);
-      setOauthDiag(null);
-      setOauthBlocked(false);
-      refreshData();
+      if (event.data.status === 'success') toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
+      else toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
+      setConnecting(false); setOauthDiag(null); setOauthBlocked(false); refreshData();
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [currentWorkspace]);
+  }, [refreshData]);
 
   const handleConnectMeta = async (forceReauth = false) => {
     if (!currentWorkspace || !session) return;
-    setConnecting(true);
-    setOauthBlocked(false);
-
+    setConnecting(true); setOauthBlocked(false);
     try {
       const { data, error } = await supabase.functions.invoke("oauth-start-meta", {
         body: { workspace_id: currentWorkspace.id, force_reauth: forceReauth },
       });
-
       if (error) throw error;
       if (data?.url) {
         const diag = parseOAuthDiagnostics(data.url);
         setOauthDiag({ url: data.url, diag });
-        // Try new tab first, fallback to top-level
         const ok = openAuthWindow(data.url);
-        if (!ok) {
-          setOauthBlocked(true);
-          navigateTopLevel(data.url);
-        }
+        if (!ok) { setOauthBlocked(true); navigateTopLevel(data.url); }
       }
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth", variant: "destructive" });
@@ -189,20 +170,12 @@ export default function Connections() {
   const handleOpenNewTab = () => {
     if (!oauthDiag?.url) return;
     const ok = openAuthWindow(oauthDiag.url);
-    if (!ok) {
-      setOauthBlocked(true);
-      toast({ title: "Popup bloqueado", description: "Usá 'Copiar URL' y pegala en una pestaña nueva.", variant: "destructive" });
-    }
+    if (!ok) { setOauthBlocked(true); toast({ title: "Popup bloqueado", description: "Usá 'Copiar URL' y pegala en una pestaña nueva.", variant: "destructive" }); }
   };
 
   const handleCopyUrl = async () => {
     if (!oauthDiag?.url) return;
-    try {
-      await navigator.clipboard.writeText(oauthDiag.url);
-      toast({ title: "URL copiada", description: "Pegala en una nueva pestaña del navegador." });
-    } catch {
-      toast({ title: "Error al copiar", variant: "destructive" });
-    }
+    try { await navigator.clipboard.writeText(oauthDiag.url); toast({ title: "URL copiada" }); } catch { toast({ title: "Error al copiar", variant: "destructive" }); }
   };
 
   const handleSyncMeta = async () => {
@@ -214,33 +187,25 @@ export default function Connections() {
       });
       if (error) throw error;
       const failedCount = data?.failed_accounts?.length ?? 0;
-      toast({
-        title: "Sync completado",
-        description: `${data?.upserted ?? 0} registros sincronizados.${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`,
-        variant: failedCount ? "destructive" : "default",
-      });
+      toast({ title: "Sync completado", description: `${data?.upserted ?? 0} registros.${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`, variant: failedCount ? "destructive" : "default" });
       refreshData();
     } catch (err) {
       toast({ title: "Error al sincronizar", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally {
-      setSyncing(false);
-    }
+    } finally { setSyncing(false); }
   };
 
   const handleBackfillMeta = async () => {
     if (!currentWorkspace || !session) return;
     const days = Math.min(Math.max(1, backfillDays), 90);
-    setBackfilling(true);
-    setBackfillStatus("started");
+    setBackfilling(true); setBackfillStatus("started");
     try {
       const { data, error } = await supabase.functions.invoke("sync-meta-daily", {
         body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
       });
       if (error) throw error;
       if (data?.errors?.length && data?.upserted === 0) {
-        const errMsg = data.errors[0];
-        setBackfillStatus(`bloqueado: ${errMsg}`);
-        toast({ title: "Backfill con errores", description: errMsg, variant: "destructive" });
+        setBackfillStatus(`bloqueado: ${data.errors[0]}`);
+        toast({ title: "Backfill con errores", description: data.errors[0], variant: "destructive" });
       } else {
         const failedCount = data?.failed_accounts?.length ?? 0;
         setBackfillStatus(`success: ${data?.upserted ?? 0} rows${failedCount ? `, ${failedCount} fallidas` : ""}`);
@@ -250,15 +215,12 @@ export default function Connections() {
     } catch (err) {
       setBackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
       toast({ title: "Error en backfill", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally {
-      setBackfilling(false);
-    }
+    } finally { setBackfilling(false); }
   };
 
   const handleRunDiagnostics = async () => {
     if (!currentWorkspace || !session) return;
-    setDiagRunning(true);
-    setDiagResults(null);
+    setDiagRunning(true); setDiagResults(null);
     try {
       const { data, error } = await supabase.functions.invoke("meta-diagnostics", {
         body: { workspace_id: currentWorkspace.id },
@@ -269,18 +231,59 @@ export default function Connections() {
       refreshData();
     } catch (err) {
       toast({ title: "Error en diagnóstico", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally {
-      setDiagRunning(false);
-    }
+    } finally { setDiagRunning(false); }
   };
 
-  const toggleAccountSelection = (accountId: string) => {
-    setSelectedAccounts((prev) => {
-      const next = new Set(prev);
-      if (next.has(accountId)) next.delete(accountId);
-      else next.add(accountId);
-      return next;
-    });
+  // ── BM/Account allowlist handlers ──
+  const handleToggleBusiness = async (biz: AllowedBusiness) => {
+    if (!currentWorkspace) return;
+    setSavingAllowlist(true);
+    try {
+      const { error } = await supabase.from("meta_allowed_businesses")
+        .update({ enabled: !biz.enabled }).eq("id", biz.id);
+      if (error) throw error;
+      setAllowedBusinesses(prev => prev.map(b => b.id === biz.id ? { ...b, enabled: !b.enabled } : b));
+      toast({ title: `BM "${biz.business_name}" ${!biz.enabled ? "habilitado" : "deshabilitado"}` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingAllowlist(false); }
+  };
+
+  const handleToggleAccountOverride = async (acct: Account) => {
+    if (!currentWorkspace) return;
+    setSavingAllowlist(true);
+    const existing = allowedAccounts.find(a => a.account_id === acct.id);
+    try {
+      if (existing) {
+        // Toggle existing override
+        const { error } = await supabase.from("meta_allowed_accounts")
+          .update({ enabled: !existing.enabled }).eq("id", existing.id);
+        if (error) throw error;
+        setAllowedAccounts(prev => prev.map(a => a.id === existing.id ? { ...a, enabled: !a.enabled } : a));
+      } else {
+        // Create new override (enabled)
+        const { data, error } = await supabase.from("meta_allowed_accounts")
+          .insert({ workspace_id: currentWorkspace.id, account_id: acct.id, account_name: acct.name, enabled: true })
+          .select().single();
+        if (error) throw error;
+        if (data) setAllowedAccounts(prev => [...prev, data as AllowedAccount]);
+      }
+      toast({ title: "Override actualizado" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingAllowlist(false); }
+  };
+
+  const handleRemoveAccountOverride = async (overrideId: string) => {
+    setSavingAllowlist(true);
+    try {
+      const { error } = await supabase.from("meta_allowed_accounts").delete().eq("id", overrideId);
+      if (error) throw error;
+      setAllowedAccounts(prev => prev.filter(a => a.id !== overrideId));
+      toast({ title: "Override eliminado" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingAllowlist(false); }
   };
 
   const isAdmin = workspaceRole === "admin";
@@ -288,24 +291,44 @@ export default function Connections() {
   const statusInfo = STATUS_CONFIG[statusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
   const StatusIcon = statusInfo.icon;
 
+  // Group accounts by business
+  const accountsByBusiness = metaAccounts.reduce<Record<string, { bizName: string; bizId: string; accounts: Account[] }>>((acc, acct) => {
+    const bizId = getMetaString(acct.metadata, "business_id") || "__none__";
+    const bizName = getMetaString(acct.metadata, "business_name") || "Sin Business Manager";
+    if (!acc[bizId]) acc[bizId] = { bizName, bizId, accounts: [] };
+    acc[bizId].accounts.push(acct);
+    return acc;
+  }, {});
+
+  const getAccountSyncEnabled = (acct: Account): { enabled: boolean; source: "biz" | "override" | "default" } => {
+    const override = allowedAccounts.find(a => a.account_id === acct.id);
+    if (override) return { enabled: override.enabled, source: "override" };
+    const bizId = getMetaString(acct.metadata, "business_id");
+    if (bizId) {
+      const biz = allowedBusinesses.find(b => b.business_id === bizId);
+      if (biz) return { enabled: biz.enabled, source: "biz" };
+    }
+    // No allowlist config = enabled by default (backwards compat)
+    return { enabled: allowedBusinesses.length === 0, source: "default" };
+  };
+
   const getSyncBadge = (status: string, message: string | null, lastError: Record<string, string> | null) => {
     if (status === "ok") return <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>;
     if (status === "unknown") return <Badge variant="outline" className="text-xs">—</Badge>;
-
     const label = status === "blocked" ? "Blocked" : status === "error_token" ? "Token Error" : "Error";
     const tooltipContent = lastError
       ? `Code: ${lastError.code || "—"}, Subcode: ${lastError.subcode || "—"}\n${lastError.message || message || "Error desconocido"}${lastError.fbtrace_id ? `\nTrace: ${lastError.fbtrace_id}` : ""}`
       : message || "Error desconocido";
-
     return (
       <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge variant="destructive" className="text-xs cursor-help">{label}</Badge>
-        </TooltipTrigger>
+        <TooltipTrigger asChild><Badge variant="destructive" className="text-xs cursor-help">{label}</Badge></TooltipTrigger>
         <TooltipContent className="max-w-sm text-xs whitespace-pre-wrap font-mono">{tooltipContent}</TooltipContent>
       </Tooltip>
     );
   };
+
+  const enabledBizCount = allowedBusinesses.filter(b => b.enabled).length;
+  const hasAllowlistConfig = allowedBusinesses.length > 0;
 
   return (
     <div className="space-y-6">
@@ -318,26 +341,17 @@ export default function Connections() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Plug className="h-5 w-5" />
-              Meta Ads
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Meta Ads</CardTitle>
             <CardDescription>Facebook & Instagram Ads · Scopes: ads_read, business_management</CardDescription>
           </div>
-
           <div className="flex items-center gap-3">
-            <Badge className={statusInfo.className}>
-              <StatusIcon className="h-3 w-3 mr-1" />
-              {statusInfo.label}
-            </Badge>
-
+            <Badge className={statusInfo.className}><StatusIcon className="h-3 w-3 mr-1" />{statusInfo.label}</Badge>
             {isAdmin && metaIntegration?.status === "connected" && (
               <Button size="sm" variant="outline" onClick={handleSyncMeta} disabled={syncing || loading}>
                 {syncing ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
                 {syncing ? "Sincronizando…" : "Sync Now"}
               </Button>
             )}
-
             {isAdmin && (
               <div className="flex items-center gap-1">
                 <Button size="sm" onClick={() => handleConnectMeta(false)} disabled={connecting || loading}>
@@ -351,9 +365,7 @@ export default function Connections() {
                         <ShieldAlert className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs">
-                      Force reauth: re-solicita permisos. Usá esto si tenés cuentas bloqueadas o cambiaste de BM.
-                    </TooltipContent>
+                    <TooltipContent className="max-w-xs text-xs">Force reauth: re-solicita permisos.</TooltipContent>
                   </Tooltip>
                 )}
               </div>
@@ -365,22 +377,12 @@ export default function Connections() {
         {oauthDiag && (
           <div className="mx-6 mb-4 rounded-md border border-border bg-muted/30 p-3 space-y-3 text-xs">
             <div className="flex items-center justify-between">
-              <span className="font-medium flex items-center gap-1.5 text-sm">
-                <Info className="h-4 w-4 text-muted-foreground" />
-                OAuth Diagnóstico
-              </span>
+              <span className="font-medium flex items-center gap-1.5 text-sm"><Info className="h-4 w-4 text-muted-foreground" />OAuth Diagnóstico</span>
               <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleOpenNewTab}>
-                  <ExternalLink className="h-3 w-3 mr-1" />
-                  Abrir en nueva pestaña
-                </Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCopyUrl}>
-                  <Copy className="h-3 w-3 mr-1" />
-                  Copiar URL
-                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleOpenNewTab}><ExternalLink className="h-3 w-3 mr-1" />Abrir en nueva pestaña</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCopyUrl}><Copy className="h-3 w-3 mr-1" />Copiar URL</Button>
               </div>
             </div>
-
             {oauthDiag.diag && (
               <div className="space-y-1 font-mono">
                 <p><span className="text-muted-foreground">redirect_uri:</span> {decodeURIComponent(oauthDiag.diag.redirectUri)}</p>
@@ -390,14 +392,11 @@ export default function Connections() {
                 <p><span className="text-muted-foreground">state:</span> {oauthDiag.diag.hasState ? "✓ presente" : "✗ FALTANTE"}</p>
                 {oauthDiag.diag.warnings.length > 0 && (
                   <div className="mt-1 space-y-0.5">
-                    {oauthDiag.diag.warnings.map((w, i) => (
-                      <p key={i} className="text-destructive font-sans font-medium">{w}</p>
-                    ))}
+                    {oauthDiag.diag.warnings.map((w, i) => <p key={i} className="text-destructive font-sans font-medium">{w}</p>)}
                   </div>
                 )}
               </div>
             )}
-
             {oauthBlocked && (
               <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 space-y-1.5">
                 <p className="font-sans font-medium text-destructive">El navegador bloqueó la ventana de OAuth. Probá:</p>
@@ -420,191 +419,231 @@ export default function Connections() {
           ) : metaIntegration ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Scopes:</span>{" "}
-                  <span className="font-mono text-xs">{metaIntegration.scopes?.join(", ") || "—"}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Token expira:</span>{" "}
-                  <span>{metaIntegration.token_expires_at ? new Date(metaIntegration.token_expires_at).toLocaleDateString() : "—"}</span>
-                </div>
+                <div><span className="text-muted-foreground">Scopes:</span> <span className="font-mono text-xs">{metaIntegration.scopes?.join(", ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Token expira:</span> <span>{metaIntegration.token_expires_at ? new Date(metaIntegration.token_expires_at).toLocaleDateString() : "—"}</span></div>
               </div>
 
-              {/* Backfill control */}
+              {/* ── Business Manager Selection ── */}
+              {isAdmin && allowedBusinesses.length > 0 && (
+                <div className="rounded-md border p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Business Managers</span>
+                      <Badge variant="outline" className="text-xs">
+                        {enabledBizCount}/{allowedBusinesses.length} habilitados
+                      </Badge>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Seleccioná qué BMs se sincronizan. Solo las cuentas de BMs habilitados se incluirán en el sync.</p>
+
+                  {!hasAllowlistConfig && (
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-700">
+                      <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+                      Sin configuración: todas las cuentas se sincronizan por defecto.
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {allowedBusinesses.map((biz) => {
+                      const bizAccounts = accountsByBusiness[biz.business_id]?.accounts || [];
+                      return (
+                        <div key={biz.id} className="rounded-md border p-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={biz.enabled}
+                                onCheckedChange={() => handleToggleBusiness(biz)}
+                                disabled={savingAllowlist}
+                              />
+                              <span className="text-sm font-medium">{biz.business_name || biz.business_id}</span>
+                              <span className="text-xs text-muted-foreground font-mono">({biz.business_id})</span>
+                            </div>
+                            <Badge variant="outline" className="text-xs">{bizAccounts.length} cuentas</Badge>
+                          </div>
+
+                          {/* Per-account list under this BM */}
+                          {bizAccounts.length > 0 && (
+                            <div className="ml-8 space-y-1">
+                              {bizAccounts.map((acct) => {
+                                const syncInfo = getAccountSyncEnabled(acct);
+                                const override = allowedAccounts.find(a => a.account_id === acct.id);
+                                const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
+                                return (
+                                  <div key={acct.id} className="flex items-center justify-between text-xs py-1 border-b border-border/50 last:border-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className={syncInfo.enabled ? "text-foreground" : "text-muted-foreground line-through"}>{acct.name}</span>
+                                      <span className="text-muted-foreground font-mono">({acct.external_account_id})</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {getSyncBadge(syncSt, syncMsg, lastError)}
+                                      {override ? (
+                                        <div className="flex items-center gap-1">
+                                          <Badge variant="secondary" className="text-[10px]">{override.enabled ? "Override: ON" : "Override: OFF"}</Badge>
+                                          <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveAccountOverride(override.id)} disabled={savingAllowlist}>
+                                            <XCircle className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button size="sm" variant="ghost" className="h-5 text-[10px] px-1.5 text-muted-foreground" onClick={() => handleToggleAccountOverride(acct)} disabled={savingAllowlist}>
+                                              Override
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent className="text-xs">Crear override per-account (prioridad sobre BM)</TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Accounts without BM */}
+                  {accountsByBusiness["__none__"] && (
+                    <div className="rounded-md border border-dashed p-2.5 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                        <AlertTriangle className="h-3.5 w-3.5" /> Sin Business Manager
+                      </div>
+                      <div className="ml-6 space-y-1">
+                        {accountsByBusiness["__none__"].accounts.map((acct) => {
+                          const override = allowedAccounts.find(a => a.account_id === acct.id);
+                          const syncInfo = getAccountSyncEnabled(acct);
+                          return (
+                            <div key={acct.id} className="flex items-center justify-between text-xs py-1 border-b border-border/50 last:border-0">
+                              <span className={syncInfo.enabled ? "text-foreground" : "text-muted-foreground line-through"}>{acct.name} <span className="font-mono text-muted-foreground">({acct.external_account_id})</span></span>
+                              <div className="flex items-center gap-1">
+                                {override ? (
+                                  <>
+                                    <Badge variant="secondary" className="text-[10px]">{override.enabled ? "ON" : "OFF"}</Badge>
+                                    <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => handleRemoveAccountOverride(override.id)} disabled={savingAllowlist}><XCircle className="h-3 w-3" /></Button>
+                                  </>
+                                ) : (
+                                  <Button size="sm" variant="ghost" className="h-5 text-[10px] px-1.5" onClick={() => handleToggleAccountOverride(acct)} disabled={savingAllowlist}>Override</Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {enabledBizCount === 0 && allowedAccounts.filter(a => a.enabled).length === 0 && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Ningún BM habilitado. El sync se saltará con motivo "no_enabled_businesses".
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Backfill */}
               {isAdmin && metaIntegration.status === "connected" && (
                 <div className="rounded-md border p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Backfill Meta</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="text-muted-foreground text-xs cursor-help">(?)</span>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs text-xs">
-                        Sincroniza datos históricos. Máximo 90 días. Cooldown: 1 backfill manual cada 6h.
-                      </TooltipContent>
-                    </Tooltip>
+                    <Tooltip><TooltipTrigger asChild><span className="text-muted-foreground text-xs cursor-help">(?)</span></TooltipTrigger><TooltipContent className="max-w-xs text-xs">Máximo 90 días. Cooldown: 1 backfill cada 6h.</TooltipContent></Tooltip>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input type="number" min={1} max={90} value={backfillDays} onChange={(e) => setBackfillDays(Number(e.target.value))} className="w-24 h-8 text-sm" placeholder="days" />
+                    <Input type="number" min={1} max={90} value={backfillDays} onChange={(e) => setBackfillDays(Number(e.target.value))} className="w-24 h-8 text-sm" />
                     <span className="text-xs text-muted-foreground">días</span>
                     <Button size="sm" variant="outline" onClick={handleBackfillMeta} disabled={backfilling}>
                       {backfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
                       Run Backfill
                     </Button>
                   </div>
-                  {backfillStatus && (
-                    <p className={`text-xs ${backfillStatus.startsWith("fail") || backfillStatus.startsWith("bloqueado") ? "text-destructive" : "text-muted-foreground"}`}>
-                      Status: {backfillStatus}
-                    </p>
-                  )}
+                  {backfillStatus && <p className={`text-xs ${backfillStatus.startsWith("fail") || backfillStatus.startsWith("bloqueado") ? "text-destructive" : "text-muted-foreground"}`}>Status: {backfillStatus}</p>}
                 </div>
               )}
 
-              {/* Meta Diagnostics Panel */}
+              {/* Meta Diagnostics */}
               {isAdmin && metaIntegration.status === "connected" && (
                 <div className="rounded-md border p-3 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Stethoscope className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Meta Diagnostics</span>
-                    </div>
+                    <div className="flex items-center gap-2"><Stethoscope className="h-4 w-4 text-muted-foreground" /><span className="text-sm font-medium">Meta Diagnostics</span></div>
                     <Button size="sm" variant="outline" onClick={handleRunDiagnostics} disabled={diagRunning}>
                       {diagRunning ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5 mr-1.5" />}
                       {diagRunning ? "Verificando…" : "Verificar acceso"}
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">Hace 1 llamada liviana por ad account para verificar si el token tiene acceso real.</p>
-
+                  <p className="text-xs text-muted-foreground">Hace 1 llamada liviana por ad account para verificar acceso real del token.</p>
                   {diagResults && (
                     <div className="rounded-md border overflow-x-auto">
                       <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b bg-muted/50">
-                            <th className="px-2 py-1.5 text-left font-medium">Account</th>
-                            <th className="px-2 py-1.5 text-left font-medium">Business</th>
-                            <th className="px-2 py-1.5 text-left font-medium">Status</th>
-                            <th className="px-2 py-1.5 text-left font-medium">Error</th>
+                        <thead><tr className="border-b bg-muted/50"><th className="px-2 py-1.5 text-left font-medium">Account</th><th className="px-2 py-1.5 text-left font-medium">Business</th><th className="px-2 py-1.5 text-left font-medium">Status</th><th className="px-2 py-1.5 text-left font-medium">Error</th></tr></thead>
+                        <tbody>{diagResults.map((r) => (
+                          <tr key={r.account_id} className="border-b last:border-0">
+                            <td className="px-2 py-1.5">{r.name} <span className="text-muted-foreground font-mono">({r.external_id})</span></td>
+                            <td className="px-2 py-1.5">{r.business ? r.business.name : "—"}</td>
+                            <td className="px-2 py-1.5">{r.status === "ok" ? <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge> : <Badge variant="destructive" className="text-xs">{r.status === "blocked" ? "Blocked" : r.status === "error_token" ? "Token" : "Error"}</Badge>}</td>
+                            <td className="px-2 py-1.5 font-mono max-w-xs truncate">{r.error?.message || "—"}</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {diagResults.map((r) => (
-                            <tr key={r.account_id} className="border-b last:border-0">
-                              <td className="px-2 py-1.5">{r.name} <span className="text-muted-foreground font-mono">({r.external_id})</span></td>
-                              <td className="px-2 py-1.5">{r.business ? r.business.name : "—"}</td>
-                              <td className="px-2 py-1.5">
-                                {r.status === "ok" ? (
-                                  <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>
-                                ) : (
-                                  <Badge variant="destructive" className="text-xs">
-                                    {r.status === "blocked" ? "Blocked" : r.status === "error_token" ? "Token" : "Error"}
-                                  </Badge>
-                                )}
-                              </td>
-                              <td className="px-2 py-1.5 font-mono max-w-xs truncate">{r.error?.message || "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
+                        ))}</tbody>
                       </table>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Ad Accounts Table */}
-              {metaAccounts.length > 0 && (
+              {/* Ad Accounts summary table (collapsed, non-BM view) */}
+              {metaAccounts.length > 0 && allowedBusinesses.length === 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">Ad Accounts ({metaAccounts.length})</h3>
                   <div className="rounded-md border overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="px-3 py-2 text-left font-medium">Nombre</th>
-                          <th className="px-3 py-2 text-left font-medium">Account ID</th>
-                          <th className="px-3 py-2 text-left font-medium">Business</th>
-                          <th className="px-3 py-2 text-left font-medium">Moneda</th>
-                          <th className="px-3 py-2 text-left font-medium">Estado</th>
-                          <th className="px-3 py-2 text-left font-medium">Sync</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {metaAccounts.map((acct) => {
-                          const businessName = getMetaString(acct.metadata, "business_name");
-                          const businessId = getMetaString(acct.metadata, "business_id");
-                          const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
-
-                          return (
-                            <tr key={acct.id} className="border-b last:border-0">
-                              <td className="px-3 py-2">{acct.name}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
-                              <td className="px-3 py-2 text-xs">
-                                {businessName ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="cursor-help">{businessName}</span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="text-xs">ID: {businessId || "—"}</TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  <span className="text-muted-foreground">—</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2">{acct.currency ?? "—"}</td>
-                              <td className="px-3 py-2">
-                                <Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">
-                                  {acct.status}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-2">
-                                {getSyncBadge(syncSt, syncMsg, lastError)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
+                      <thead><tr className="border-b bg-muted/50"><th className="px-3 py-2 text-left font-medium">Nombre</th><th className="px-3 py-2 text-left font-medium">Account ID</th><th className="px-3 py-2 text-left font-medium">Business</th><th className="px-3 py-2 text-left font-medium">Moneda</th><th className="px-3 py-2 text-left font-medium">Estado</th><th className="px-3 py-2 text-left font-medium">Sync</th></tr></thead>
+                      <tbody>{metaAccounts.map((acct) => {
+                        const businessName = getMetaString(acct.metadata, "business_name");
+                        const businessId = getMetaString(acct.metadata, "business_id");
+                        const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
+                        return (
+                          <tr key={acct.id} className="border-b last:border-0">
+                            <td className="px-3 py-2">{acct.name}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
+                            <td className="px-3 py-2 text-xs">{businessName ? <Tooltip><TooltipTrigger asChild><span className="cursor-help">{businessName}</span></TooltipTrigger><TooltipContent className="text-xs">ID: {businessId || "—"}</TooltipContent></Tooltip> : <span className="text-muted-foreground">—</span>}</td>
+                            <td className="px-3 py-2">{acct.currency ?? "—"}</td>
+                            <td className="px-3 py-2"><Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">{acct.status}</Badge></td>
+                            <td className="px-3 py-2">{getSyncBadge(syncSt, syncMsg, lastError)}</td>
+                          </tr>
+                        );
+                      })}</tbody>
                     </table>
                   </div>
                 </div>
               )}
 
-              {metaAccounts.length === 0 && (
-                <p className="text-sm text-muted-foreground">No se encontraron cuentas publicitarias.</p>
-              )}
+              {metaAccounts.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron cuentas publicitarias.</p>}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              {isAdmin ? "Conectá tu cuenta de Meta para descubrir cuentas publicitarias." : "Pedile a un admin que conecte Meta Ads."}
-            </p>
+            <p className="text-sm text-muted-foreground">{isAdmin ? "Conectá tu cuenta de Meta para descubrir cuentas publicitarias." : "Pedile a un admin que conecte Meta Ads."}</p>
           )}
         </CardContent>
       </Card>
 
-      {/* Google Ads Card - Coming Soon */}
+      {/* Google Ads Card */}
       <Card className="opacity-75">
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Ads</CardTitle>
-            <CardDescription>Search, Display, Shopping & YouTube Ads</CardDescription>
-          </div>
+          <div className="space-y-1"><CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Ads</CardTitle><CardDescription>Search, Display, Shopping & YouTube Ads</CardDescription></div>
           <Badge variant="outline" className="text-xs">Coming next</Badge>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret, Developer Token. Scopes: <code className="text-xs font-mono">adwords</code>.</p>
-        </CardContent>
+        <CardContent><p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret, Developer Token. Scopes: <code className="text-xs font-mono">adwords</code>.</p></CardContent>
       </Card>
 
-      {/* GA4 Card - Coming Soon */}
+      {/* GA4 Card */}
       <Card className="opacity-75">
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Analytics 4</CardTitle>
-            <CardDescription>Sessions, Transactions & Revenue</CardDescription>
-          </div>
+          <div className="space-y-1"><CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Analytics 4</CardTitle><CardDescription>Sessions, Transactions & Revenue</CardDescription></div>
           <Badge variant="outline" className="text-xs">Coming next</Badge>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret. Scopes: <code className="text-xs font-mono">analytics.readonly</code>.</p>
-        </CardContent>
+        <CardContent><p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret. Scopes: <code className="text-xs font-mono">analytics.readonly</code>.</p></CardContent>
       </Card>
     </div>
   );
