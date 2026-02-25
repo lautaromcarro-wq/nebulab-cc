@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
@@ -29,6 +29,12 @@ function getMetaString(metadata: Json | null, key: string): string | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const val = (metadata as Record<string, Json | undefined>)[key];
   return typeof val === "string" ? val : null;
+}
+
+function getMetaBool(metadata: Json | null, key: string): boolean | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const val = (metadata as Record<string, Json | undefined>)[key];
+  return typeof val === "boolean" ? val : null;
 }
 
 function getAccountSyncStatus(metadata: Json | null): { status: string; message: string | null; lastError: Record<string, string> | null } {
@@ -87,13 +93,20 @@ export default function Connections() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [metaIntegration, setMetaIntegration] = useState<Integration | null>(null);
   const [metaAccounts, setMetaAccounts] = useState<Account[]>([]);
+  const [googleIntegration, setGoogleIntegration] = useState<Integration | null>(null);
+  const [googleAccounts, setGoogleAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncingGoogle, setSyncingGoogle] = useState(false);
   const [backfillDays, setBackfillDays] = useState(30);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
-  const [oauthDiag, setOauthDiag] = useState<{ url: string; diag: ReturnType<typeof parseOAuthDiagnostics> } | null>(null);
+  const [googleBackfillDays, setGoogleBackfillDays] = useState(30);
+  const [googleBackfilling, setGoogleBackfilling] = useState(false);
+  const [googleBackfillStatus, setGoogleBackfillStatus] = useState<string | null>(null);
+  const [oauthDiag, setOauthDiag] = useState<{ url: string; diag: ReturnType<typeof parseOAuthDiagnostics>; provider: string } | null>(null);
   const [oauthBlocked, setOauthBlocked] = useState(false);
   const [diagRunning, setDiagRunning] = useState(false);
   const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null);
@@ -106,14 +119,18 @@ export default function Connections() {
   const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
     setLoading(true);
-    const [intRes, accRes, bizRes, acctRes] = await Promise.all([
+    const [intMetaRes, intGoogleRes, accMetaRes, accGoogleRes, bizRes, acctRes] = await Promise.all([
       supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").maybeSingle(),
+      supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "google_ads").maybeSingle(),
       supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").order("name"),
+      supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "google_ads").order("name"),
       supabase.from("meta_allowed_businesses").select("*").eq("workspace_id", currentWorkspace.id).order("business_name"),
       supabase.from("meta_allowed_accounts").select("*").eq("workspace_id", currentWorkspace.id),
     ]);
-    setMetaIntegration(intRes.data);
-    setMetaAccounts(accRes.data ?? []);
+    setMetaIntegration(intMetaRes.data);
+    setGoogleIntegration(intGoogleRes.data);
+    setMetaAccounts(accMetaRes.data ?? []);
+    setGoogleAccounts(accGoogleRes.data ?? []);
     setAllowedBusinesses((bizRes.data as AllowedBusiness[] | null) ?? []);
     setAllowedAccounts((acctRes.data as AllowedAccount[] | null) ?? []);
     setLoading(false);
@@ -129,6 +146,12 @@ export default function Connections() {
       searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message");
       setSearchParams(searchParams, { replace: true });
     }
+    if (oauthProvider === "google_ads") {
+      if (status === "success") toast({ title: "Google Ads conectado", description: "Cuentas descubiertas exitosamente." });
+      else if (status === "error") toast({ title: "Error al conectar Google Ads", description: message || "Ocurrió un error.", variant: "destructive" });
+      searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message");
+      setSearchParams(searchParams, { replace: true });
+    }
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -138,15 +161,24 @@ export default function Connections() {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (event.data?.type !== 'oauth-complete' || event.data?.provider !== 'meta') return;
-      if (event.data.status === 'success') toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
-      else toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
-      setConnecting(false); setOauthDiag(null); setOauthBlocked(false); refreshData();
+      if (event.data?.type !== 'oauth-complete') return;
+      const provider = event.data.provider;
+      if (provider === 'meta') {
+        if (event.data.status === 'success') toast({ title: "Meta conectado", description: "Cuentas publicitarias descubiertas exitosamente." });
+        else toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
+        setConnecting(false);
+      } else if (provider === 'google_ads') {
+        if (event.data.status === 'success') toast({ title: "Google Ads conectado", description: "Cuentas descubiertas exitosamente." });
+        else toast({ title: "Error al conectar Google Ads", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
+        setConnectingGoogle(false);
+      }
+      setOauthDiag(null); setOauthBlocked(false); refreshData();
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [refreshData]);
 
+  // ── Meta handlers ──
   const handleConnectMeta = async (forceReauth = false) => {
     if (!currentWorkspace || !session) return;
     setConnecting(true); setOauthBlocked(false);
@@ -157,7 +189,7 @@ export default function Connections() {
       if (error) throw error;
       if (data?.url) {
         const diag = parseOAuthDiagnostics(data.url);
-        setOauthDiag({ url: data.url, diag });
+        setOauthDiag({ url: data.url, diag, provider: "meta" });
         const ok = openAuthWindow(data.url);
         if (!ok) { setOauthBlocked(true); navigateTopLevel(data.url); }
       }
@@ -165,6 +197,83 @@ export default function Connections() {
       toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth", variant: "destructive" });
       setConnecting(false);
     }
+  };
+
+  // ── Google Ads handlers ──
+  const handleConnectGoogle = async () => {
+    if (!currentWorkspace || !session) return;
+    setConnectingGoogle(true); setOauthBlocked(false);
+    try {
+      const { data, error } = await supabase.functions.invoke("oauth-start-google-ads", {
+        body: { workspace_id: currentWorkspace.id },
+      });
+      if (error) throw error;
+      if (data?.url) {
+        const diag = parseOAuthDiagnostics(data.url);
+        setOauthDiag({ url: data.url, diag, provider: "google_ads" });
+        const ok = openAuthWindow(data.url);
+        if (!ok) { setOauthBlocked(true); navigateTopLevel(data.url); }
+      }
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth", variant: "destructive" });
+      setConnectingGoogle(false);
+    }
+  };
+
+  const handleSyncGoogle = async () => {
+    if (!currentWorkspace || !session) return;
+    setSyncingGoogle(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-google-daily", {
+        body: { workspace_id: currentWorkspace.id, days_back: 3 },
+      });
+      if (error) throw error;
+      const failedCount = data?.failed_accounts?.length ?? 0;
+      toast({ title: "Sync completado", description: `${data?.upserted ?? 0} registros.${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`, variant: failedCount ? "destructive" : "default" });
+      refreshData();
+    } catch (err) {
+      toast({ title: "Error al sincronizar", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSyncingGoogle(false); }
+  };
+
+  const handleBackfillGoogle = async () => {
+    if (!currentWorkspace || !session) return;
+    const days = Math.min(Math.max(1, googleBackfillDays), 90);
+    setGoogleBackfilling(true); setGoogleBackfillStatus("started");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-google-daily", {
+        body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
+      });
+      if (error) throw error;
+      if (data?.errors?.length && data?.upserted === 0) {
+        setGoogleBackfillStatus(`bloqueado: ${data.errors[0]}`);
+        toast({ title: "Backfill con errores", description: data.errors[0], variant: "destructive" });
+      } else {
+        const failedCount = data?.failed_accounts?.length ?? 0;
+        setGoogleBackfillStatus(`success: ${data?.upserted ?? 0} rows${failedCount ? `, ${failedCount} fallidas` : ""}`);
+        toast({ title: "Backfill completado", description: `${data?.upserted ?? 0} registros (${days} días).` });
+      }
+      refreshData();
+    } catch (err) {
+      setGoogleBackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
+      toast({ title: "Error en backfill", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setGoogleBackfilling(false); }
+  };
+
+  const handleToggleGoogleAccountEnabled = async (acct: Account) => {
+    if (!currentWorkspace) return;
+    setSavingAllowlist(true);
+    try {
+      const meta = (acct.metadata as Record<string, Json | undefined>) || {};
+      const currentlyEnabled = getMetaBool(acct.metadata, "enabled") !== false;
+      const newMeta = { ...meta, enabled: !currentlyEnabled };
+      const { error } = await supabase.from("accounts").update({ metadata: newMeta }).eq("id", acct.id);
+      if (error) throw error;
+      setGoogleAccounts(prev => prev.map(a => a.id === acct.id ? { ...a, metadata: newMeta } : a));
+      toast({ title: `Cuenta ${!currentlyEnabled ? "habilitada" : "deshabilitada"} para sync` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingAllowlist(false); }
   };
 
   const handleOpenNewTab = () => {
@@ -255,13 +364,11 @@ export default function Connections() {
     const existing = allowedAccounts.find(a => a.account_id === acct.id);
     try {
       if (existing) {
-        // Toggle existing override
         const { error } = await supabase.from("meta_allowed_accounts")
           .update({ enabled: !existing.enabled }).eq("id", existing.id);
         if (error) throw error;
         setAllowedAccounts(prev => prev.map(a => a.id === existing.id ? { ...a, enabled: !a.enabled } : a));
       } else {
-        // Create new override (enabled)
         const { data, error } = await supabase.from("meta_allowed_accounts")
           .insert({ workspace_id: currentWorkspace.id, account_id: acct.id, account_name: acct.name, enabled: true })
           .select().single();
@@ -287,11 +394,15 @@ export default function Connections() {
   };
 
   const isAdmin = workspaceRole === "admin";
-  const statusKey = metaIntegration?.status ?? "disconnected";
-  const statusInfo = STATUS_CONFIG[statusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
-  const StatusIcon = statusInfo.icon;
+  const metaStatusKey = metaIntegration?.status ?? "disconnected";
+  const metaStatusInfo = STATUS_CONFIG[metaStatusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
+  const MetaStatusIcon = metaStatusInfo.icon;
 
-  // Group accounts by business
+  const googleStatusKey = googleIntegration?.status ?? "disconnected";
+  const googleStatusInfo = STATUS_CONFIG[googleStatusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
+  const GoogleStatusIcon = googleStatusInfo.icon;
+
+  // Group Meta accounts by business
   const accountsByBusiness = metaAccounts.reduce<Record<string, { bizName: string; bizId: string; accounts: Account[] }>>((acc, acct) => {
     const bizId = getMetaString(acct.metadata, "business_id") || "__none__";
     const bizName = getMetaString(acct.metadata, "business_name") || "Sin Business Manager";
@@ -308,7 +419,6 @@ export default function Connections() {
       const biz = allowedBusinesses.find(b => b.business_id === bizId);
       if (biz) return { enabled: biz.enabled, source: "biz" };
     }
-    // No allowlist config = enabled by default (backwards compat)
     return { enabled: allowedBusinesses.length === 0, source: "default" };
   };
 
@@ -330,12 +440,49 @@ export default function Connections() {
   const enabledBizCount = allowedBusinesses.filter(b => b.enabled).length;
   const hasAllowlistConfig = allowedBusinesses.length > 0;
 
+  // Google accounts: separate managers vs clients
+  const googleClientAccounts = googleAccounts.filter(a => getMetaBool(a.metadata, "manager") !== true);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Connections</h1>
         <p className="text-muted-foreground text-sm mt-1">Gestioná tus integraciones con plataformas de ads.</p>
       </div>
+
+      {/* OAuth Diagnostic Panel (shared) */}
+      {oauthDiag && (
+        <Card>
+          <CardContent className="p-4 space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-medium flex items-center gap-1.5 text-sm"><Info className="h-4 w-4 text-muted-foreground" />OAuth Diagnóstico ({oauthDiag.provider})</span>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleOpenNewTab}><ExternalLink className="h-3 w-3 mr-1" />Abrir en nueva pestaña</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCopyUrl}><Copy className="h-3 w-3 mr-1" />Copiar URL</Button>
+              </div>
+            </div>
+            {oauthDiag.diag && (
+              <div className="space-y-1 font-mono">
+                <p><span className="text-muted-foreground">redirect_uri:</span> {decodeURIComponent(oauthDiag.diag.redirectUri)}</p>
+                <p><span className="text-muted-foreground">response_type:</span> {oauthDiag.diag.responseType}</p>
+                <p><span className="text-muted-foreground">scope:</span> {oauthDiag.diag.scope}</p>
+                <p><span className="text-muted-foreground">client_id:</span> {oauthDiag.diag.clientId}</p>
+                <p><span className="text-muted-foreground">state:</span> {oauthDiag.diag.hasState ? "✓ presente" : "✗ FALTANTE"}</p>
+              </div>
+            )}
+            {oauthBlocked && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 space-y-1.5">
+                <p className="font-sans font-medium text-destructive">El navegador bloqueó la ventana de OAuth. Probá:</p>
+                <ul className="list-disc list-inside font-sans space-y-0.5 text-foreground">
+                  <li>Usá el botón <strong>"Copiar URL"</strong> y pegala en una pestaña nueva</li>
+                  <li>Probá Chrome en perfil limpio / incógnito</li>
+                  <li>Desactivá adblockers (uBlock, AdGuard, etc.)</li>
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Meta Ads Card */}
       <Card>
@@ -345,7 +492,7 @@ export default function Connections() {
             <CardDescription>Facebook & Instagram Ads · Scopes: ads_read, business_management</CardDescription>
           </div>
           <div className="flex items-center gap-3">
-            <Badge className={statusInfo.className}><StatusIcon className="h-3 w-3 mr-1" />{statusInfo.label}</Badge>
+            <Badge className={metaStatusInfo.className}><MetaStatusIcon className="h-3 w-3 mr-1" />{metaStatusInfo.label}</Badge>
             {isAdmin && metaIntegration?.status === "connected" && (
               <Button size="sm" variant="outline" onClick={handleSyncMeta} disabled={syncing || loading}>
                 {syncing ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
@@ -373,44 +520,6 @@ export default function Connections() {
           </div>
         </CardHeader>
 
-        {/* OAuth Diagnostic Panel */}
-        {oauthDiag && (
-          <div className="mx-6 mb-4 rounded-md border border-border bg-muted/30 p-3 space-y-3 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-medium flex items-center gap-1.5 text-sm"><Info className="h-4 w-4 text-muted-foreground" />OAuth Diagnóstico</span>
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleOpenNewTab}><ExternalLink className="h-3 w-3 mr-1" />Abrir en nueva pestaña</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCopyUrl}><Copy className="h-3 w-3 mr-1" />Copiar URL</Button>
-              </div>
-            </div>
-            {oauthDiag.diag && (
-              <div className="space-y-1 font-mono">
-                <p><span className="text-muted-foreground">redirect_uri:</span> {decodeURIComponent(oauthDiag.diag.redirectUri)}</p>
-                <p><span className="text-muted-foreground">response_type:</span> {oauthDiag.diag.responseType}</p>
-                <p><span className="text-muted-foreground">scope:</span> {oauthDiag.diag.scope}</p>
-                <p><span className="text-muted-foreground">client_id:</span> {oauthDiag.diag.clientId}</p>
-                <p><span className="text-muted-foreground">state:</span> {oauthDiag.diag.hasState ? "✓ presente" : "✗ FALTANTE"}</p>
-                {oauthDiag.diag.warnings.length > 0 && (
-                  <div className="mt-1 space-y-0.5">
-                    {oauthDiag.diag.warnings.map((w, i) => <p key={i} className="text-destructive font-sans font-medium">{w}</p>)}
-                  </div>
-                )}
-              </div>
-            )}
-            {oauthBlocked && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 space-y-1.5">
-                <p className="font-sans font-medium text-destructive">El navegador bloqueó la ventana de OAuth. Probá:</p>
-                <ul className="list-disc list-inside font-sans space-y-0.5 text-foreground">
-                  <li>Usá el botón <strong>"Copiar URL"</strong> y pegala en una pestaña nueva</li>
-                  <li>Probá Chrome en perfil limpio / incógnito</li>
-                  <li>Desactivá adblockers (uBlock, AdGuard, etc.)</li>
-                  <li>Si usás la Preview de Lovable, abrí la app publicada y conectá desde ahí</li>
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-
         <CardContent>
           {!currentWorkspace ? (
             <p className="text-sm text-muted-foreground">Seleccioná un workspace para gestionar conexiones.</p>
@@ -423,27 +532,22 @@ export default function Connections() {
                 <div><span className="text-muted-foreground">Token expira:</span> <span>{metaIntegration.token_expires_at ? new Date(metaIntegration.token_expires_at).toLocaleDateString() : "—"}</span></div>
               </div>
 
-              {/* ── Business Manager Selection ── */}
+              {/* BM Selection */}
               {isAdmin && allowedBusinesses.length > 0 && (
                 <div className="rounded-md border p-3 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm font-medium">Business Managers</span>
-                      <Badge variant="outline" className="text-xs">
-                        {enabledBizCount}/{allowedBusinesses.length} habilitados
-                      </Badge>
+                      <Badge variant="outline" className="text-xs">{enabledBizCount}/{allowedBusinesses.length} habilitados</Badge>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">Seleccioná qué BMs se sincronizan. Solo las cuentas de BMs habilitados se incluirán en el sync.</p>
-
+                  <p className="text-xs text-muted-foreground">Seleccioná qué BMs se sincronizan.</p>
                   {!hasAllowlistConfig && (
                     <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-700">
-                      <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
-                      Sin configuración: todas las cuentas se sincronizan por defecto.
+                      <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />Sin configuración: todas las cuentas se sincronizan por defecto.
                     </div>
                   )}
-
                   <div className="space-y-2">
                     {allowedBusinesses.map((biz) => {
                       const bizAccounts = accountsByBusiness[biz.business_id]?.accounts || [];
@@ -451,18 +555,12 @@ export default function Connections() {
                         <div key={biz.id} className="rounded-md border p-2.5 space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <Switch
-                                checked={biz.enabled}
-                                onCheckedChange={() => handleToggleBusiness(biz)}
-                                disabled={savingAllowlist}
-                              />
+                              <Switch checked={biz.enabled} onCheckedChange={() => handleToggleBusiness(biz)} disabled={savingAllowlist} />
                               <span className="text-sm font-medium">{biz.business_name || biz.business_id}</span>
                               <span className="text-xs text-muted-foreground font-mono">({biz.business_id})</span>
                             </div>
                             <Badge variant="outline" className="text-xs">{bizAccounts.length} cuentas</Badge>
                           </div>
-
-                          {/* Per-account list under this BM */}
                           {bizAccounts.length > 0 && (
                             <div className="ml-8 space-y-1">
                               {bizAccounts.map((acct) => {
@@ -491,7 +589,7 @@ export default function Connections() {
                                               Override
                                             </Button>
                                           </TooltipTrigger>
-                                          <TooltipContent className="text-xs">Crear override per-account (prioridad sobre BM)</TooltipContent>
+                                          <TooltipContent className="text-xs">Crear override per-account</TooltipContent>
                                         </Tooltip>
                                       )}
                                     </div>
@@ -504,8 +602,6 @@ export default function Connections() {
                       );
                     })}
                   </div>
-
-                  {/* Accounts without BM */}
                   {accountsByBusiness["__none__"] && (
                     <div className="rounded-md border border-dashed p-2.5 space-y-2">
                       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -534,30 +630,26 @@ export default function Connections() {
                       </div>
                     </div>
                   )}
-
                   {enabledBizCount === 0 && allowedAccounts.filter(a => a.enabled).length === 0 && (
                     <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive flex items-center gap-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      Ningún BM habilitado. El sync se saltará con motivo "no_enabled_businesses".
+                      <AlertTriangle className="h-3.5 w-3.5" />Ningún BM habilitado.
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Backfill */}
+              {/* Backfill Meta */}
               {isAdmin && metaIntegration.status === "connected" && (
                 <div className="rounded-md border p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Backfill Meta</span>
-                    <Tooltip><TooltipTrigger asChild><span className="text-muted-foreground text-xs cursor-help">(?)</span></TooltipTrigger><TooltipContent className="max-w-xs text-xs">Máximo 90 días. Cooldown: 1 backfill cada 6h.</TooltipContent></Tooltip>
                   </div>
                   <div className="flex items-center gap-2">
                     <Input type="number" min={1} max={90} value={backfillDays} onChange={(e) => setBackfillDays(Number(e.target.value))} className="w-24 h-8 text-sm" />
                     <span className="text-xs text-muted-foreground">días</span>
                     <Button size="sm" variant="outline" onClick={handleBackfillMeta} disabled={backfilling}>
-                      {backfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
-                      Run Backfill
+                      {backfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}Run Backfill
                     </Button>
                   </div>
                   {backfillStatus && <p className={`text-xs ${backfillStatus.startsWith("fail") || backfillStatus.startsWith("bloqueado") ? "text-destructive" : "text-muted-foreground"}`}>Status: {backfillStatus}</p>}
@@ -574,7 +666,6 @@ export default function Connections() {
                       {diagRunning ? "Verificando…" : "Verificar acceso"}
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">Hace 1 llamada liviana por ad account para verificar acceso real del token.</p>
                   {diagResults && (
                     <div className="rounded-md border overflow-x-auto">
                       <table className="w-full text-xs">
@@ -583,7 +674,7 @@ export default function Connections() {
                           <tr key={r.account_id} className="border-b last:border-0">
                             <td className="px-2 py-1.5">{r.name} <span className="text-muted-foreground font-mono">({r.external_id})</span></td>
                             <td className="px-2 py-1.5">{r.business ? r.business.name : "—"}</td>
-                            <td className="px-2 py-1.5">{r.status === "ok" ? <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge> : <Badge variant="destructive" className="text-xs">{r.status === "blocked" ? "Blocked" : r.status === "error_token" ? "Token" : "Error"}</Badge>}</td>
+                            <td className="px-2 py-1.5">{r.status === "ok" ? <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge> : <Badge variant="destructive" className="text-xs">{r.status === "blocked" ? "Blocked" : "Error"}</Badge>}</td>
                             <td className="px-2 py-1.5 font-mono max-w-xs truncate">{r.error?.message || "—"}</td>
                           </tr>
                         ))}</tbody>
@@ -593,7 +684,7 @@ export default function Connections() {
                 </div>
               )}
 
-              {/* Ad Accounts summary table (collapsed, non-BM view) */}
+              {/* Ad Accounts table (no-BM fallback) */}
               {metaAccounts.length > 0 && allowedBusinesses.length === 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">Ad Accounts ({metaAccounts.length})</h3>
@@ -608,7 +699,7 @@ export default function Connections() {
                           <tr key={acct.id} className="border-b last:border-0">
                             <td className="px-3 py-2">{acct.name}</td>
                             <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
-                            <td className="px-3 py-2 text-xs">{businessName ? <Tooltip><TooltipTrigger asChild><span className="cursor-help">{businessName}</span></TooltipTrigger><TooltipContent className="text-xs">ID: {businessId || "—"}</TooltipContent></Tooltip> : <span className="text-muted-foreground">—</span>}</td>
+                            <td className="px-3 py-2 text-xs">{businessName || <span className="text-muted-foreground">—</span>}</td>
                             <td className="px-3 py-2">{acct.currency ?? "—"}</td>
                             <td className="px-3 py-2"><Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">{acct.status}</Badge></td>
                             <td className="px-3 py-2">{getSyncBadge(syncSt, syncMsg, lastError)}</td>
@@ -628,13 +719,114 @@ export default function Connections() {
         </CardContent>
       </Card>
 
-      {/* Google Ads Card */}
-      <Card className="opacity-75">
+      {/* ═══════════ Google Ads Card ═══════════ */}
+      <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
-          <div className="space-y-1"><CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Ads</CardTitle><CardDescription>Search, Display, Shopping & YouTube Ads</CardDescription></div>
-          <Badge variant="outline" className="text-xs">Coming next</Badge>
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Ads</CardTitle>
+            <CardDescription>Search, Display, Shopping & YouTube Ads · Scope: adwords</CardDescription>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge className={googleStatusInfo.className}><GoogleStatusIcon className="h-3 w-3 mr-1" />{googleStatusInfo.label}</Badge>
+            {isAdmin && googleIntegration?.status === "connected" && (
+              <Button size="sm" variant="outline" onClick={handleSyncGoogle} disabled={syncingGoogle || loading}>
+                {syncingGoogle ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                {syncingGoogle ? "Sincronizando…" : "Sync Now"}
+              </Button>
+            )}
+            {isAdmin && (
+              <Button size="sm" onClick={handleConnectGoogle} disabled={connectingGoogle || loading}>
+                {connectingGoogle && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                {googleIntegration ? "Reconectar" : "Conectar Google"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
-        <CardContent><p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret, Developer Token. Scopes: <code className="text-xs font-mono">adwords</code>.</p></CardContent>
+
+        <CardContent>
+          {!currentWorkspace ? (
+            <p className="text-sm text-muted-foreground">Seleccioná un workspace.</p>
+          ) : loading ? (
+            <p className="text-sm text-muted-foreground">Cargando…</p>
+          ) : googleIntegration ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="text-muted-foreground">Scopes:</span> <span className="font-mono text-xs">{googleIntegration.scopes?.join(", ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Token expira:</span> <span>{googleIntegration.token_expires_at ? new Date(googleIntegration.token_expires_at).toLocaleDateString() : "—"}</span></div>
+              </div>
+
+              {/* Google Accounts table with Enabled toggle */}
+              {googleClientAccounts.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium mb-2">Accounts Discovered ({googleClientAccounts.length})</h3>
+                  <div className="rounded-md border overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="px-3 py-2 text-left font-medium">Enabled</th>
+                          <th className="px-3 py-2 text-left font-medium">Nombre</th>
+                          <th className="px-3 py-2 text-left font-medium">Customer ID</th>
+                          <th className="px-3 py-2 text-left font-medium">Moneda</th>
+                          <th className="px-3 py-2 text-left font-medium">Timezone</th>
+                          <th className="px-3 py-2 text-left font-medium">Estado</th>
+                          <th className="px-3 py-2 text-left font-medium">Sync</th>
+                        </tr>
+                      </thead>
+                      <tbody>{googleClientAccounts.map((acct) => {
+                        const isEnabled = getMetaBool(acct.metadata, "enabled") !== false;
+                        const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
+                        return (
+                          <tr key={acct.id} className="border-b last:border-0">
+                            <td className="px-3 py-2">
+                              {isAdmin ? (
+                                <Switch
+                                  checked={isEnabled}
+                                  onCheckedChange={() => handleToggleGoogleAccountEnabled(acct)}
+                                  disabled={savingAllowlist}
+                                />
+                              ) : (
+                                <Badge variant={isEnabled ? "default" : "secondary"} className="text-xs">{isEnabled ? "ON" : "OFF"}</Badge>
+                              )}
+                            </td>
+                            <td className={`px-3 py-2 ${!isEnabled ? "text-muted-foreground line-through" : ""}`}>{acct.name}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
+                            <td className="px-3 py-2">{acct.currency ?? "—"}</td>
+                            <td className="px-3 py-2 text-xs">{acct.timezone ?? "—"}</td>
+                            <td className="px-3 py-2"><Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">{acct.status}</Badge></td>
+                            <td className="px-3 py-2">{getSyncBadge(syncSt, syncMsg, lastError)}</td>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Backfill Google */}
+              {isAdmin && googleIntegration.status === "connected" && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Backfill Google Ads</span>
+                    <Tooltip><TooltipTrigger asChild><span className="text-muted-foreground text-xs cursor-help">(?)</span></TooltipTrigger><TooltipContent className="max-w-xs text-xs">Máximo 90 días. Cooldown: 1 backfill cada 6h.</TooltipContent></Tooltip>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" min={1} max={90} value={googleBackfillDays} onChange={(e) => setGoogleBackfillDays(Number(e.target.value))} className="w-24 h-8 text-sm" />
+                    <span className="text-xs text-muted-foreground">días</span>
+                    <Button size="sm" variant="outline" onClick={handleBackfillGoogle} disabled={googleBackfilling}>
+                      {googleBackfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}Run Backfill
+                    </Button>
+                  </div>
+                  {googleBackfillStatus && <p className={`text-xs ${googleBackfillStatus.startsWith("fail") || googleBackfillStatus.startsWith("bloqueado") ? "text-destructive" : "text-muted-foreground"}`}>Status: {googleBackfillStatus}</p>}
+                </div>
+              )}
+
+              {googleClientAccounts.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron cuentas clientes.</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{isAdmin ? "Conectá tu cuenta de Google Ads para descubrir cuentas publicitarias." : "Pedile a un admin que conecte Google Ads."}</p>
+          )}
+        </CardContent>
       </Card>
 
       {/* GA4 Card */}

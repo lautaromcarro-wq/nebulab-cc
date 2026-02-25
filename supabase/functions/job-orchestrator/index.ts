@@ -180,8 +180,7 @@ async function executeJob(
     }
 
     case "sync_google_accounts":
-    case "sync_google_catalog":
-    case "sync_google_daily_metrics": {
+    case "sync_google_catalog": {
       const { data: integration } = await supabase
         .from("integrations")
         .select("id, status")
@@ -193,6 +192,34 @@ async function executeJob(
         return { items_upserted: 0, details: { skipped: true, reason: "no_connected_integration" } };
       }
       return { items_upserted: 0, details: { stub: true, integration_id: integration.id } };
+    }
+
+    case "sync_google_daily_metrics": {
+      const { data: gadsInt } = await supabase
+        .from("integrations")
+        .select("id, status")
+        .eq("workspace_id", workspaceId)
+        .eq("provider", "google_ads")
+        .eq("status", "connected")
+        .maybeSingle();
+      if (!gadsInt) {
+        return { items_upserted: 0, details: { skipped: true, reason: "no_connected_integration" } };
+      }
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/sync-google-daily`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ workspace_id: workspaceId, days_back: 3, triggered_by: "cron" }),
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || "sync-google-daily failed");
+      return { items_upserted: data.upserted ?? 0, details: { errors: data.errors } };
     }
 
     case "sync_ga4_daily": {
