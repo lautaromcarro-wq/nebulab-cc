@@ -190,8 +190,17 @@ Deno.serve(async (req) => {
               const errCode = data.error.code?.toString() || "unknown";
               const errSubcode = data.error.error_subcode?.toString() || "";
               const errMsg = data.error.message || "Unknown API error";
+              const errUserTitle = data.error.error_user_title || "";
+              const errUserMsg = data.error.error_user_msg || "";
+              const fbtraceId = data.error.fbtrace_id || "";
+
+              // Classify error type
               const isBlocked = errMsg.toLowerCase().includes("blocked") ||
-                errCode === "190" || errCode === "10" || errCode === "200";
+                errMsg.toLowerCase().includes("api access") ||
+                errSubcode === "1487301" || errSubcode === "1487366" ||
+                errCode === "10" || errCode === "200";
+              const isTokenError = errCode === "190" || errCode === "102";
+              const syncStatus = isTokenError ? "error_token" : isBlocked ? "blocked" : "error";
 
               errors.push(`Account ${actId}: ${errMsg}`);
               failedAccounts.push({
@@ -199,30 +208,53 @@ Deno.serve(async (req) => {
                 external_id: actId,
                 error: errMsg,
                 error_code: errCode,
+                error_subcode: errSubcode,
+                fbtrace_id: fbtraceId,
               });
 
               // Get business_id from account metadata for diagnostic
               const meta = account.metadata as Record<string, unknown> | null;
               const businessId = meta?.business_id || null;
+              const businessName = meta?.business_name || null;
 
               // Write health_event for this account
               await supabase.from("health_events").insert({
                 workspace_id: wsId,
                 provider: "meta",
-                check_type: "insights_api_access",
-                severity: isBlocked ? "critical" : "warn",
+                check_type: "meta_account_blocked",
+                severity: isBlocked || isTokenError ? "critical" : "warn",
                 entity_type: "account",
                 entity_id: account.id,
-                message: `${isBlocked ? "API access blocked" : "API error"}: ${errMsg} (code=${errCode}, subcode=${errSubcode})${businessId ? ` [BM: ${businessId}]` : ""}`,
+                message: JSON.stringify({
+                  status: syncStatus,
+                  code: errCode,
+                  subcode: errSubcode,
+                  message: errMsg,
+                  user_title: errUserTitle,
+                  user_msg: errUserMsg,
+                  fbtrace_id: fbtraceId,
+                  business_id: businessId,
+                  business_name: businessName,
+                }),
               });
 
               // Update account metadata with sync status
               const updatedMeta = {
                 ...(meta || {}),
-                sync_status: isBlocked ? "blocked" : "error",
+                sync_status: syncStatus,
                 sync_error: errMsg,
                 sync_error_code: errCode,
+                sync_error_subcode: errSubcode,
+                sync_fbtrace_id: fbtraceId,
                 sync_last_attempt: new Date().toISOString(),
+                last_error: {
+                  code: errCode,
+                  subcode: errSubcode,
+                  message: errMsg,
+                  user_title: errUserTitle,
+                  user_msg: errUserMsg,
+                  fbtrace_id: fbtraceId,
+                },
               };
               await supabase.from("accounts").update({ metadata: updatedMeta }).eq("id", account.id);
 

@@ -110,10 +110,11 @@ async function saveCredential(supabase: any, workspaceId: string, integrationId:
   const { data: existing } = await supabase
     .from('credentials').select('id').eq('integration_id', integrationId).maybeSingle();
 
+  const now = new Date().toISOString();
   if (existing) {
     await supabase.from('credentials').update({
       access_token: accessToken, meta_long_lived_token: accessToken,
-      expires_at: expiresAt, updated_at: new Date().toISOString(),
+      expires_at: expiresAt, updated_at: now,
     }).eq('id', existing.id);
   } else {
     await supabase.from('credentials').insert({
