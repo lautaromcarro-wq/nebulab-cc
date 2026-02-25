@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Tables } from "@/integrations/supabase/types";
+import type { Tables, Json } from "@/integrations/supabase/types";
 
 type Integration = Tables<"integrations">;
 type Account = Tables<"accounts">;
@@ -20,6 +20,38 @@ const STATUS_CONFIG = {
   degraded: { label: "Degraded", icon: AlertTriangle, variant: "secondary" as const, className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   disconnected: { label: "Disconnected", icon: XCircle, variant: "outline" as const, className: "bg-muted text-muted-foreground" },
 };
+
+// Helper to safely extract string from Json metadata
+function getMetaString(metadata: Json | null, key: string): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const val = (metadata as Record<string, Json | undefined>)[key];
+  return typeof val === "string" ? val : null;
+}
+
+function getAccountSyncStatus(metadata: Json | null): { status: string; message: string | null } {
+  const syncStatus = getMetaString(metadata, "sync_status");
+  const syncError = getMetaString(metadata, "sync_error");
+  if (syncStatus === "blocked" || syncStatus === "error") {
+    return { status: syncStatus, message: syncError };
+  }
+  return { status: "ok", message: null };
+}
+
+/** Open OAuth URL - handles iframe context by using window.open */
+function openAuthWindow(url: string) {
+  // Always use window.open for a new tab - works inside iframes and avoids Facebook blocking
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  if (!win) {
+    // Popup blocked - try top-level navigation as fallback
+    if (window.self !== window.top) {
+      try {
+        window.top!.location.href = url;
+        return;
+      } catch { /* cross-origin, fall through */ }
+    }
+    window.location.href = url;
+  }
+}
 
 export default function Connections() {
   const { currentWorkspace, workspaceRole } = useWorkspace();
@@ -34,6 +66,18 @@ export default function Connections() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
 
+  const refreshData = async () => {
+    if (!currentWorkspace) return;
+    setLoading(true);
+    const [intRes, accRes] = await Promise.all([
+      supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").maybeSingle(),
+      supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").order("name"),
+    ]);
+    setMetaIntegration(intRes.data);
+    setMetaAccounts(accRes.data ?? []);
+    setLoading(false);
+  };
+
   // Handle OAuth redirect result
   useEffect(() => {
     const oauthProvider = searchParams.get("oauth");
@@ -46,7 +90,6 @@ export default function Connections() {
       } else if (status === "error") {
         toast({ title: "Error al conectar Meta", description: message || "Ocurrió un error.", variant: "destructive" });
       }
-      // Clean URL params
       searchParams.delete("oauth");
       searchParams.delete("status");
       searchParams.delete("message");
@@ -56,33 +99,8 @@ export default function Connections() {
 
   // Fetch integration + accounts
   useEffect(() => {
-    if (!currentWorkspace) {
-      setLoading(false);
-      return;
-    }
-
-    const fetchData = async () => {
-      setLoading(true);
-      const [intRes, accRes] = await Promise.all([
-        supabase
-          .from("integrations")
-          .select("*")
-          .eq("workspace_id", currentWorkspace.id)
-          .eq("provider", "meta")
-          .maybeSingle(),
-        supabase
-          .from("accounts")
-          .select("*")
-          .eq("workspace_id", currentWorkspace.id)
-          .eq("provider", "meta")
-          .order("name"),
-      ]);
-      setMetaIntegration(intRes.data);
-      setMetaAccounts(accRes.data ?? []);
-      setLoading(false);
-    };
-
-    fetchData();
+    if (!currentWorkspace) { setLoading(false); return; }
+    refreshData();
   }, [currentWorkspace, searchParams]);
 
   // Listen for popup OAuth completion
@@ -95,37 +113,24 @@ export default function Connections() {
         toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
       }
       setConnecting(false);
-      // Re-fetch data
-      setLoading(true);
-      Promise.all([
-        supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace!.id).eq("provider", "meta").maybeSingle(),
-        supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace!.id).eq("provider", "meta").order("name"),
-      ]).then(([intRes, accRes]) => {
-        setMetaIntegration(intRes.data);
-        setMetaAccounts(accRes.data ?? []);
-        setLoading(false);
-      });
+      refreshData();
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [currentWorkspace]);
 
-  const handleConnectMeta = async () => {
+  const handleConnectMeta = async (forceReauth = false) => {
     if (!currentWorkspace || !session) return;
     setConnecting(true);
 
     try {
       const { data, error } = await supabase.functions.invoke("oauth-start-meta", {
-        body: { workspace_id: currentWorkspace.id },
+        body: { workspace_id: currentWorkspace.id, force_reauth: forceReauth },
       });
 
       if (error) throw error;
       if (data?.url) {
-        const popup = window.open(data.url, 'meta-oauth', 'width=600,height=700,scrollbars=yes');
-        if (!popup) {
-          // Popup blocked — fall back to top-level navigation
-          window.location.href = data.url;
-        }
+        openAuthWindow(data.url);
       }
     } catch (err) {
       toast({
@@ -145,10 +150,14 @@ export default function Connections() {
         body: { workspace_id: currentWorkspace.id, days_back: 3 },
       });
       if (error) throw error;
+      const failedCount = data?.failed_accounts?.length ?? 0;
       toast({
         title: "Sync completado",
-        description: `Se insertaron ${data?.upserted ?? 0} registros en performance_daily.${data?.errors?.length ? ` (${data.errors.length} errores)` : ""}`,
+        description: `${data?.upserted ?? 0} registros sincronizados.${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`,
+        variant: failedCount ? "destructive" : "default",
       });
+      // Refresh to show updated per-account status
+      refreshData();
     } catch (err) {
       toast({
         title: "Error al sincronizar",
@@ -170,30 +179,23 @@ export default function Connections() {
         body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
       });
       if (error) throw error;
-      // Check if the function returned errors (cooldown, rate limit, etc.)
       if (data?.errors?.length && data?.upserted === 0) {
         const errMsg = data.errors[0];
         const isCooldown = errMsg.includes("cooldown") || errMsg.includes("rate limit") || errMsg.includes("locked");
         setBackfillStatus(`bloqueado: ${errMsg}`);
-        toast({
-          title: isCooldown ? "Backfill en cooldown" : "Backfill con errores",
-          description: errMsg,
-          variant: "destructive",
-        });
+        toast({ title: isCooldown ? "Backfill en cooldown" : "Backfill con errores", description: errMsg, variant: "destructive" });
       } else {
-        setBackfillStatus(`success: ${data?.upserted ?? 0} rows, ${data?.pages ?? 0} pages`);
+        const failedCount = data?.failed_accounts?.length ?? 0;
+        setBackfillStatus(`success: ${data?.upserted ?? 0} rows${failedCount ? `, ${failedCount} cuentas fallidas` : ""}`);
         toast({
           title: "Backfill completado",
-          description: `${data?.upserted ?? 0} registros sincronizados (${days} días).${data?.hit_limit ? " ⚠️ Hit limit." : ""}`,
+          description: `${data?.upserted ?? 0} registros sincronizados (${days} días).${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`,
         });
       }
+      refreshData();
     } catch (err) {
       setBackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
-      toast({
-        title: "Error en backfill",
-        description: err instanceof Error ? err.message : "No se pudo ejecutar el backfill",
-        variant: "destructive",
-      });
+      toast({ title: "Error en backfill", description: err instanceof Error ? err.message : "No se pudo ejecutar el backfill", variant: "destructive" });
     } finally {
       setBackfilling(false);
     }
@@ -229,26 +231,32 @@ export default function Connections() {
             </Badge>
 
             {isAdmin && metaIntegration?.status === "connected" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSyncMeta}
-                disabled={syncing || loading}
-              >
+              <Button size="sm" variant="outline" onClick={handleSyncMeta} disabled={syncing || loading}>
                 {syncing ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
                 {syncing ? "Sincronizando…" : "Sync Now"}
               </Button>
             )}
 
             {isAdmin && (
-              <Button
-                size="sm"
-                onClick={handleConnectMeta}
-                disabled={connecting || loading}
-              >
-                {connecting && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-                {metaIntegration ? "Reconectar" : "Conectar Meta"}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button size="sm" onClick={() => handleConnectMeta(false)} disabled={connecting || loading}>
+                  {connecting && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                  {metaIntegration ? "Reconectar" : "Conectar Meta"}
+                </Button>
+                {metaIntegration && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button size="sm" variant="outline" onClick={() => handleConnectMeta(true)} disabled={connecting || loading}>
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      Force reauth: re-solicita permisos a Facebook. Usá esto si tenés cuentas bloqueadas o cambiaste de Business Manager.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
             )}
           </div>
         </CardHeader>
@@ -267,11 +275,7 @@ export default function Connections() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Token expira:</span>{" "}
-                  <span>
-                    {metaIntegration.token_expires_at
-                      ? new Date(metaIntegration.token_expires_at).toLocaleDateString()
-                      : "—"}
-                  </span>
+                  <span>{metaIntegration.token_expires_at ? new Date(metaIntegration.token_expires_at).toLocaleDateString() : "—"}</span>
                 </div>
               </div>
 
@@ -291,15 +295,7 @@ export default function Connections() {
                     </Tooltip>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={90}
-                      value={backfillDays}
-                      onChange={(e) => setBackfillDays(Number(e.target.value))}
-                      className="w-24 h-8 text-sm"
-                      placeholder="days"
-                    />
+                    <Input type="number" min={1} max={90} value={backfillDays} onChange={(e) => setBackfillDays(Number(e.target.value))} className="w-24 h-8 text-sm" placeholder="days" />
                     <span className="text-xs text-muted-foreground">días</span>
                     <Button size="sm" variant="outline" onClick={handleBackfillMeta} disabled={backfilling}>
                       {backfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
@@ -307,7 +303,7 @@ export default function Connections() {
                     </Button>
                   </div>
                   {backfillStatus && (
-                    <p className={`text-xs ${backfillStatus.startsWith("fail") ? "text-destructive" : "text-muted-foreground"}`}>
+                    <p className={`text-xs ${backfillStatus.startsWith("fail") || backfillStatus.startsWith("bloqueado") ? "text-destructive" : "text-muted-foreground"}`}>
                       Status: {backfillStatus}
                     </p>
                   )}
@@ -316,32 +312,64 @@ export default function Connections() {
 
               {metaAccounts.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium mb-2">
-                    Ad Accounts ({metaAccounts.length})
-                  </h3>
-                  <div className="rounded-md border">
+                  <h3 className="text-sm font-medium mb-2">Ad Accounts ({metaAccounts.length})</h3>
+                  <div className="rounded-md border overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b bg-muted/50">
                           <th className="px-3 py-2 text-left font-medium">Nombre</th>
                           <th className="px-3 py-2 text-left font-medium">Account ID</th>
+                          <th className="px-3 py-2 text-left font-medium">Business</th>
                           <th className="px-3 py-2 text-left font-medium">Moneda</th>
                           <th className="px-3 py-2 text-left font-medium">Estado</th>
+                          <th className="px-3 py-2 text-left font-medium">Sync</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {metaAccounts.map((acct) => (
-                          <tr key={acct.id} className="border-b last:border-0">
-                            <td className="px-3 py-2">{acct.name}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
-                            <td className="px-3 py-2">{acct.currency ?? "—"}</td>
-                            <td className="px-3 py-2">
-                              <Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">
-                                {acct.status}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
+                        {metaAccounts.map((acct) => {
+                          const businessName = getMetaString(acct.metadata, "business_name");
+                          const businessId = getMetaString(acct.metadata, "business_id");
+                          const { status: syncSt, message: syncMsg } = getAccountSyncStatus(acct.metadata);
+
+                          return (
+                            <tr key={acct.id} className="border-b last:border-0">
+                              <td className="px-3 py-2">{acct.name}</td>
+                              <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
+                              <td className="px-3 py-2 text-xs">
+                                {businessName ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="cursor-help">{businessName}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="text-xs">ID: {businessId || "—"}</TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">{acct.currency ?? "—"}</td>
+                              <td className="px-3 py-2">
+                                <Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">
+                                  {acct.status}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2">
+                                {syncSt === "ok" ? (
+                                  <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>
+                                ) : (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge variant="destructive" className="text-xs cursor-help">
+                                        {syncSt === "blocked" ? "Blocked" : "Error"}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-xs">{syncMsg || "Error desconocido"}</TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -349,16 +377,12 @@ export default function Connections() {
               )}
 
               {metaAccounts.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No se encontraron cuentas publicitarias.
-                </p>
+                <p className="text-sm text-muted-foreground">No se encontraron cuentas publicitarias.</p>
               )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              {isAdmin
-                ? "Conectá tu cuenta de Meta para descubrir cuentas publicitarias."
-                : "Pedile a un admin que conecte Meta Ads."}
+              {isAdmin ? "Conectá tu cuenta de Meta para descubrir cuentas publicitarias." : "Pedile a un admin que conecte Meta Ads."}
             </p>
           )}
         </CardContent>
@@ -368,18 +392,13 @@ export default function Connections() {
       <Card className="opacity-75">
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Plug className="h-5 w-5" />
-              Google Ads
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Ads</CardTitle>
             <CardDescription>Search, Display, Shopping & YouTube Ads</CardDescription>
           </div>
           <Badge variant="outline" className="text-xs">Coming next</Badge>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Requiere: OAuth Client ID/Secret, Developer Token. Scopes: <code className="text-xs font-mono">adwords</code>.
-          </p>
+          <p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret, Developer Token. Scopes: <code className="text-xs font-mono">adwords</code>.</p>
         </CardContent>
       </Card>
 
@@ -387,18 +406,13 @@ export default function Connections() {
       <Card className="opacity-75">
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Plug className="h-5 w-5" />
-              Google Analytics 4
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Analytics 4</CardTitle>
             <CardDescription>Sessions, Transactions & Revenue</CardDescription>
           </div>
           <Badge variant="outline" className="text-xs">Coming next</Badge>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Requiere: OAuth Client ID/Secret. Scopes: <code className="text-xs font-mono">analytics.readonly</code>.
-          </p>
+          <p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret. Scopes: <code className="text-xs font-mono">analytics.readonly</code>.</p>
         </CardContent>
       </Card>
     </div>

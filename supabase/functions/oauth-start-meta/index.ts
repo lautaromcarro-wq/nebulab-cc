@@ -17,11 +17,12 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     if (!SUPABASE_URL) throw new Error('SUPABASE_URL not configured');
 
-    const { workspace_id } = await req.json();
+    const { workspace_id, force_reauth } = await req.json();
     if (!workspace_id) throw new Error('workspace_id is required');
 
     const redirectUri = `${SUPABASE_URL}/functions/v1/oauth-callback-meta`;
-    const state = btoa(JSON.stringify({ workspace_id }));
+    const nonce = crypto.randomUUID();
+    const state = btoa(JSON.stringify({ workspace_id, nonce }));
     const scopes = 'ads_read,business_management';
 
     const authUrl = new URL('https://www.facebook.com/v21.0/dialog/oauth');
@@ -30,6 +31,11 @@ serve(async (req) => {
     authUrl.searchParams.set('scope', scopes);
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('response_type', 'code');
+    
+    // Force reauth to re-request permissions (multi-BM support)
+    if (force_reauth) {
+      authUrl.searchParams.set('auth_type', 'rerequest');
+    }
 
     return new Response(JSON.stringify({ url: authUrl.toString() }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

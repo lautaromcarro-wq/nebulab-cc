@@ -39,11 +39,9 @@ Deno.serve(async (req) => {
       triggeredBy = body.triggered_by ?? (body.days_back ? "manual" : "cron");
     } catch { /* no body */ }
 
-    // Clamp days_back
     const maxDays = triggeredBy === "manual" ? LIMITS.MANUAL_MAX_DAYS_BACK : LIMITS.CRON_MAX_DAYS_BACK;
     daysBack = Math.min(daysBack, maxDays);
 
-    // Get workspaces with connected Meta integrations
     let intQuery = supabase
       .from("integrations")
       .select("id, workspace_id")
@@ -53,14 +51,12 @@ Deno.serve(async (req) => {
     const { data: integrations, error: intErr } = await intQuery;
     if (intErr) throw intErr;
     if (!integrations?.length) {
-      return new Response(
-        JSON.stringify({ success: true, message: "No connected Meta integrations", upserted: 0 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse({ success: true, message: "No connected Meta integrations", upserted: 0 });
     }
 
     let totalUpserted = 0;
     const errors: string[] = [];
+    const failedAccounts: Array<{ account_id: string; external_id: string; error: string; error_code?: string }> = [];
     const riskEvents: Array<{ workspace_id: string; code: string; severity: string; message: string; metadata_json: Record<string, unknown> }> = [];
     let hitLimit = false;
     let totalPages = 0;
@@ -73,11 +69,8 @@ Deno.serve(async (req) => {
 
       // ── Lock check ──
       const { data: existingLock } = await supabase
-        .from("sync_locks")
-        .select("id, locked_until")
-        .eq("workspace_id", wsId)
-        .eq("provider", PROVIDER)
-        .eq("job_name", JOB_NAME)
+        .from("sync_locks").select("id, locked_until")
+        .eq("workspace_id", wsId).eq("provider", PROVIDER).eq("job_name", JOB_NAME)
         .maybeSingle();
 
       if (existingLock && new Date(existingLock.locked_until) > new Date()) {
@@ -94,11 +87,8 @@ Deno.serve(async (req) => {
       // ── Rate limit check ──
       const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
       const { count: recentRuns } = await supabase
-        .from("sync_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", wsId)
-        .eq("provider", PROVIDER)
-        .eq("job_name", JOB_NAME)
+        .from("sync_runs").select("id", { count: "exact", head: true })
+        .eq("workspace_id", wsId).eq("provider", PROVIDER).eq("job_name", JOB_NAME)
         .gte("started_at", oneHourAgo);
 
       if ((recentRuns ?? 0) >= LIMITS.MAX_RUNS_PER_HOUR) {
@@ -106,7 +96,7 @@ Deno.serve(async (req) => {
         await supabase.from("sync_runs").insert({
           workspace_id: wsId, provider: PROVIDER, integration_id: integration.id,
           job_name: JOB_NAME, status: "error", items_upserted: 0,
-          details: { skipped: true, reason: "rate_limit", max_runs_per_hour: LIMITS.MAX_RUNS_PER_HOUR },
+          details: { skipped: true, reason: "rate_limit" },
           ended_at: new Date().toISOString(), triggered_by: triggeredBy,
         });
         continue;
@@ -116,20 +106,16 @@ Deno.serve(async (req) => {
       if (triggeredBy === "manual") {
         const cooldownAgo = new Date(Date.now() - LIMITS.MANUAL_COOLDOWN_HOURS * 3600_000).toISOString();
         const { count: recentManual } = await supabase
-          .from("sync_runs")
-          .select("id", { count: "exact", head: true })
-          .eq("workspace_id", wsId)
-          .eq("provider", PROVIDER)
-          .eq("job_name", JOB_NAME)
-          .eq("triggered_by", "manual")
-          .gte("started_at", cooldownAgo);
+          .from("sync_runs").select("id", { count: "exact", head: true })
+          .eq("workspace_id", wsId).eq("provider", PROVIDER).eq("job_name", JOB_NAME)
+          .eq("triggered_by", "manual").gte("started_at", cooldownAgo);
 
         if ((recentManual ?? 0) >= 1) {
           errors.push(`Workspace ${wsId}: manual cooldown (1 per ${LIMITS.MANUAL_COOLDOWN_HOURS}h)`);
           await supabase.from("sync_runs").insert({
             workspace_id: wsId, provider: PROVIDER, integration_id: integration.id,
             job_name: JOB_NAME, status: "error", items_upserted: 0,
-            details: { skipped: true, reason: "manual_cooldown", cooldown_hours: LIMITS.MANUAL_COOLDOWN_HOURS },
+            details: { skipped: true, reason: "manual_cooldown" },
             ended_at: new Date().toISOString(), triggered_by: triggeredBy,
           });
           continue;
@@ -144,12 +130,9 @@ Deno.serve(async (req) => {
       }, { onConflict: "workspace_id,provider,job_name" });
 
       try {
-        // Get credential
         const { data: cred } = await supabase
-          .from("credentials")
-          .select("access_token, meta_long_lived_token")
-          .eq("integration_id", integration.id)
-          .maybeSingle();
+          .from("credentials").select("access_token, meta_long_lived_token")
+          .eq("integration_id", integration.id).maybeSingle();
 
         const accessToken = cred?.meta_long_lived_token || cred?.access_token;
         if (!accessToken) {
@@ -157,17 +140,12 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Get active ad accounts
         const { data: accounts } = await supabase
-          .from("accounts")
-          .select("id, external_account_id")
-          .eq("workspace_id", wsId)
-          .eq("provider", "meta")
-          .eq("status", "active");
+          .from("accounts").select("id, external_account_id, metadata")
+          .eq("workspace_id", wsId).eq("provider", "meta").eq("status", "active");
 
         if (!accounts?.length) continue;
 
-        // Date range
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - daysBack);
@@ -177,7 +155,6 @@ Deno.serve(async (req) => {
         for (const account of accounts) {
           if (hitLimit) break;
 
-          // Runtime check
           if (Date.now() - startTime > LIMITS.MAX_RUNTIME_MS) {
             hitLimit = true;
             riskEvents.push({
@@ -209,9 +186,60 @@ Deno.serve(async (req) => {
             const data = await res.json();
 
             if (data.error) {
-              errors.push(`Account ${actId}: ${data.error.message}`);
+              // ── Per-account error handling: DON'T abort, record and continue ──
+              const errCode = data.error.code?.toString() || "unknown";
+              const errSubcode = data.error.error_subcode?.toString() || "";
+              const errMsg = data.error.message || "Unknown API error";
+              const isBlocked = errMsg.toLowerCase().includes("blocked") ||
+                errCode === "190" || errCode === "10" || errCode === "200";
+
+              errors.push(`Account ${actId}: ${errMsg}`);
+              failedAccounts.push({
+                account_id: account.id,
+                external_id: actId,
+                error: errMsg,
+                error_code: errCode,
+              });
+
+              // Get business_id from account metadata for diagnostic
+              const meta = account.metadata as Record<string, unknown> | null;
+              const businessId = meta?.business_id || null;
+
+              // Write health_event for this account
+              await supabase.from("health_events").insert({
+                workspace_id: wsId,
+                provider: "meta",
+                check_type: "insights_api_access",
+                severity: isBlocked ? "critical" : "warn",
+                entity_type: "account",
+                entity_id: account.id,
+                message: `${isBlocked ? "API access blocked" : "API error"}: ${errMsg} (code=${errCode}, subcode=${errSubcode})${businessId ? ` [BM: ${businessId}]` : ""}`,
+              });
+
+              // Update account metadata with sync status
+              const updatedMeta = {
+                ...(meta || {}),
+                sync_status: isBlocked ? "blocked" : "error",
+                sync_error: errMsg,
+                sync_error_code: errCode,
+                sync_last_attempt: new Date().toISOString(),
+              };
+              await supabase.from("accounts").update({ metadata: updatedMeta }).eq("id", account.id);
+
+              // CONTINUE with next account - don't abort
               continue;
             }
+
+            // Success - clear any previous error status on this account
+            const meta = account.metadata as Record<string, unknown> | null;
+            const updatedMeta = {
+              ...(meta || {}),
+              sync_status: "ok",
+              sync_error: null,
+              sync_error_code: null,
+              sync_last_attempt: new Date().toISOString(),
+            };
+            await supabase.from("accounts").update({ metadata: updatedMeta }).eq("id", account.id);
 
             for (const row of data.data ?? []) {
               rows.push(parseInsightRow(row, wsId, account.id, "account", account.id));
@@ -232,18 +260,13 @@ Deno.serve(async (req) => {
                 riskEvents.push({
                   workspace_id: wsId, code: "MAX_API_PAGES_EXCEEDED", severity: "warn",
                   message: `Stopped after ${LIMITS.MAX_API_PAGES} API pages`,
-                  metadata_json: { total_pages: totalPages, total_rows: totalUpserted + rows.length },
+                  metadata_json: { total_pages: totalPages },
                 });
                 break;
               }
 
               if (Date.now() - startTime > LIMITS.MAX_RUNTIME_MS) {
                 hitLimit = true;
-                riskEvents.push({
-                  workspace_id: wsId, code: "MAX_RUNTIME_EXCEEDED", severity: "warn",
-                  message: `Sync stopped after ${LIMITS.MAX_RUNTIME_MS / 1000}s runtime limit`,
-                  metadata_json: { elapsed_ms: Date.now() - startTime },
-                });
                 break;
               }
 
@@ -274,10 +297,9 @@ Deno.serve(async (req) => {
               hitLimit = true;
               riskEvents.push({
                 workspace_id: wsId, code: "MAX_ROWS_EXCEEDED", severity: "critical",
-                message: `Stopped: would exceed ${LIMITS.MAX_ROWS_PER_RUN} row limit (attempted ${totalUpserted + rows.length})`,
+                message: `Stopped: would exceed ${LIMITS.MAX_ROWS_PER_RUN} row limit`,
                 metadata_json: { attempted: totalUpserted + rows.length, limit: LIMITS.MAX_ROWS_PER_RUN },
               });
-              // Insert what we have so far up to the limit
               const allowed = LIMITS.MAX_ROWS_PER_RUN - totalUpserted;
               if (allowed > 0) {
                 await deleteAndInsert(supabase, rows.slice(0, allowed), wsId, account.id, since, until);
@@ -286,35 +308,38 @@ Deno.serve(async (req) => {
               break;
             }
 
-            // Delete + insert
             await deleteAndInsert(supabase, rows, wsId, account.id, since, until);
             totalUpserted += rows.length;
           } catch (err) {
-            errors.push(`Account ${account.external_account_id}: ${err instanceof Error ? err.message : String(err)}`);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            errors.push(`Account ${account.external_account_id}: ${errMsg}`);
+            failedAccounts.push({
+              account_id: account.id,
+              external_id: account.external_account_id,
+              error: errMsg,
+            });
+            // Continue with next account
           }
         }
 
-        // Log sync run
-        const status = hitLimit ? "partial" : (errors.length > 0 ? "partial" : "success");
+        // Log sync run with partial success info
+        const hasFailures = failedAccounts.length > 0;
+        const status = hitLimit ? "partial" : (hasFailures ? "partial" : (errors.length > 0 ? "partial" : "success"));
         await supabase.from("sync_runs").insert({
           workspace_id: wsId, provider: PROVIDER, integration_id: integration.id,
           job_name: JOB_NAME, status,
           items_upserted: totalUpserted,
           details: {
-            days_back: daysBack,
-            pages_fetched: totalPages,
-            hit_limit: hitLimit,
+            days_back: daysBack, pages_fetched: totalPages, hit_limit: hitLimit,
+            failed_accounts: failedAccounts.length > 0 ? failedAccounts : undefined,
             errors: errors.length > 0 ? errors : undefined,
+            duration_ms: Date.now() - startTime,
           },
           ended_at: new Date().toISOString(), triggered_by: triggeredBy,
         });
       } finally {
-        // ── Release lock ──
-        await supabase.from("sync_locks")
-          .delete()
-          .eq("workspace_id", wsId)
-          .eq("provider", PROVIDER)
-          .eq("job_name", JOB_NAME);
+        await supabase.from("sync_locks").delete()
+          .eq("workspace_id", wsId).eq("provider", PROVIDER).eq("job_name", JOB_NAME);
       }
     }
 
@@ -325,30 +350,31 @@ Deno.serve(async (req) => {
       );
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        upserted: totalUpserted,
-        pages: totalPages,
-        hit_limit: hitLimit,
-        risk_events: riskEvents.length,
-        errors: errors.length > 0 ? errors : undefined,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return jsonResponse({
+      success: true,
+      upserted: totalUpserted,
+      pages: totalPages,
+      hit_limit: hitLimit,
+      risk_events: riskEvents.length,
+      failed_accounts: failedAccounts.length > 0 ? failedAccounts : undefined,
+      errors: errors.length > 0 ? errors : undefined,
+    });
   } catch (error) {
     console.error("sync-meta-daily error:", error);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
 
 // ── Helpers ──
+
+function jsonResponse(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 function parseInsightRow(
   row: Record<string, unknown>,
@@ -385,14 +411,9 @@ async function deleteAndInsert(
 ) {
   if (rows.length === 0) return;
 
-  await supabase
-    .from("performance_daily")
-    .delete()
-    .eq("workspace_id", wsId)
-    .eq("account_id", accountId)
-    .eq("provider", "meta")
-    .gte("date", since)
-    .lte("date", until);
+  await supabase.from("performance_daily").delete()
+    .eq("workspace_id", wsId).eq("account_id", accountId).eq("provider", "meta")
+    .gte("date", since).lte("date", until);
 
   for (let i = 0; i < rows.length; i += 500) {
     const batch = rows.slice(i, i + 500);
