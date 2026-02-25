@@ -46,6 +46,17 @@ Deno.serve(async (req) => {
     authUrl.searchParams.set("prompt", "consent");
     authUrl.searchParams.set("state", state);
 
+    // Debug log (no secrets)
+    console.log("[oauth-start-google-ads] Redirect params:", JSON.stringify({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      scope: "https://www.googleapis.com/auth/adwords",
+      access_type: "offline",
+      prompt: "consent",
+      workspace_id,
+      full_url: authUrl.toString(),
+    }));
+
     // For GET requests: return 302 redirect (top-level navigation, no iframe issues)
     if (req.method === "GET") {
       return new Response(null, {
