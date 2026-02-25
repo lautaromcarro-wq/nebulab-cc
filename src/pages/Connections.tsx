@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { Tables, Json } from "@/integrations/supabase/types";
 
 type Integration = Tables<"integrations">;
@@ -27,13 +28,16 @@ function getMetaString(metadata: Json | null, key: string): string | null {
   return typeof val === "string" ? val : null;
 }
 
-function getAccountSyncStatus(metadata: Json | null): { status: string; message: string | null } {
-  const syncStatus = getMetaString(metadata, "sync_status");
-  const syncError = getMetaString(metadata, "sync_error");
-  if (syncStatus === "blocked" || syncStatus === "error") {
-    return { status: syncStatus, message: syncError };
+function getAccountSyncStatus(metadata: Json | null): { status: string; message: string | null; lastError: Record<string, string> | null } {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return { status: "unknown", message: null, lastError: null };
+  const m = metadata as Record<string, Json | undefined>;
+  const syncStatus = typeof m.sync_status === "string" ? m.sync_status : "unknown";
+  const syncError = typeof m.sync_error === "string" ? m.sync_error : null;
+  const lastError = m.last_error && typeof m.last_error === "object" && !Array.isArray(m.last_error) ? m.last_error as Record<string, string> : null;
+  if (syncStatus === "blocked" || syncStatus === "error" || syncStatus === "error_token") {
+    return { status: syncStatus, message: syncError, lastError };
   }
-  return { status: "ok", message: null };
+  return { status: syncStatus === "ok" ? "ok" : "unknown", message: null, lastError: null };
 }
 
 /** Parse OAuth URL for diagnostic display */
@@ -57,7 +61,13 @@ function parseOAuthDiagnostics(url: string) {
   }
 }
 
-/** Default: top-level redirect */
+/** Default: open in new tab */
+function openAuthWindow(url: string): boolean {
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  return !!win;
+}
+
+/** Fallback: top-level redirect */
 function navigateTopLevel(url: string) {
   if (window.self !== window.top) {
     try {
@@ -68,11 +78,14 @@ function navigateTopLevel(url: string) {
   window.location.assign(url);
 }
 
-/** Secondary: open in new tab */
-function openInNewTab(url: string): boolean {
-  const win = window.open(url, "_blank", "noopener,noreferrer");
-  return !!win;
-}
+type DiagResult = {
+  account_id: string;
+  external_id: string;
+  name: string;
+  status: string;
+  error: { code?: string; subcode?: string; message?: string; fbtrace_id?: string } | null;
+  business: { id: string; name: string } | null;
+};
 
 export default function Connections() {
   const { currentWorkspace, workspaceRole } = useWorkspace();
@@ -88,6 +101,9 @@ export default function Connections() {
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
   const [oauthDiag, setOauthDiag] = useState<{ url: string; diag: ReturnType<typeof parseOAuthDiagnostics> } | null>(null);
   const [oauthBlocked, setOauthBlocked] = useState(false);
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null);
 
   const refreshData = async () => {
     if (!currentWorkspace) return;
@@ -120,7 +136,6 @@ export default function Connections() {
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch integration + accounts
   useEffect(() => {
     if (!currentWorkspace) { setLoading(false); return; }
     refreshData();
@@ -144,7 +159,6 @@ export default function Connections() {
     return () => window.removeEventListener('message', handler);
   }, [currentWorkspace]);
 
-  /** Fetch OAuth URL and navigate top-level (default) */
   const handleConnectMeta = async (forceReauth = false) => {
     if (!currentWorkspace || !session) return;
     setConnecting(true);
@@ -159,37 +173,35 @@ export default function Connections() {
       if (data?.url) {
         const diag = parseOAuthDiagnostics(data.url);
         setOauthDiag({ url: data.url, diag });
-        // Default: top-level redirect
-        navigateTopLevel(data.url);
+        // Try new tab first, fallback to top-level
+        const ok = openAuthWindow(data.url);
+        if (!ok) {
+          setOauthBlocked(true);
+          navigateTopLevel(data.url);
+        }
       }
     } catch (err) {
-      toast({
-        title: "Error",
-        description: err instanceof Error ? err.message : "No se pudo iniciar OAuth",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth", variant: "destructive" });
       setConnecting(false);
     }
   };
 
-  /** Secondary: open in new tab */
   const handleOpenNewTab = () => {
     if (!oauthDiag?.url) return;
-    const ok = openInNewTab(oauthDiag.url);
+    const ok = openAuthWindow(oauthDiag.url);
     if (!ok) {
       setOauthBlocked(true);
-      toast({ title: "Popup bloqueado", description: "Permití popups o usá 'Copiar URL' y pegala en una pestaña nueva.", variant: "destructive" });
+      toast({ title: "Popup bloqueado", description: "Usá 'Copiar URL' y pegala en una pestaña nueva.", variant: "destructive" });
     }
   };
 
-  /** Copy OAuth URL to clipboard */
   const handleCopyUrl = async () => {
     if (!oauthDiag?.url) return;
     try {
       await navigator.clipboard.writeText(oauthDiag.url);
       toast({ title: "URL copiada", description: "Pegala en una nueva pestaña del navegador." });
     } catch {
-      toast({ title: "Error al copiar", description: "Copiá la URL manualmente desde el panel de diagnóstico.", variant: "destructive" });
+      toast({ title: "Error al copiar", variant: "destructive" });
     }
   };
 
@@ -207,14 +219,9 @@ export default function Connections() {
         description: `${data?.upserted ?? 0} registros sincronizados.${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`,
         variant: failedCount ? "destructive" : "default",
       });
-      // Refresh to show updated per-account status
       refreshData();
     } catch (err) {
-      toast({
-        title: "Error al sincronizar",
-        description: err instanceof Error ? err.message : "No se pudo ejecutar la sincronización",
-        variant: "destructive",
-      });
+      toast({ title: "Error al sincronizar", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
     } finally {
       setSyncing(false);
     }
@@ -232,30 +239,73 @@ export default function Connections() {
       if (error) throw error;
       if (data?.errors?.length && data?.upserted === 0) {
         const errMsg = data.errors[0];
-        const isCooldown = errMsg.includes("cooldown") || errMsg.includes("rate limit") || errMsg.includes("locked");
         setBackfillStatus(`bloqueado: ${errMsg}`);
-        toast({ title: isCooldown ? "Backfill en cooldown" : "Backfill con errores", description: errMsg, variant: "destructive" });
+        toast({ title: "Backfill con errores", description: errMsg, variant: "destructive" });
       } else {
         const failedCount = data?.failed_accounts?.length ?? 0;
-        setBackfillStatus(`success: ${data?.upserted ?? 0} rows${failedCount ? `, ${failedCount} cuentas fallidas` : ""}`);
-        toast({
-          title: "Backfill completado",
-          description: `${data?.upserted ?? 0} registros sincronizados (${days} días).${failedCount ? ` ${failedCount} cuentas con errores.` : ""}`,
-        });
+        setBackfillStatus(`success: ${data?.upserted ?? 0} rows${failedCount ? `, ${failedCount} fallidas` : ""}`);
+        toast({ title: "Backfill completado", description: `${data?.upserted ?? 0} registros (${days} días).` });
       }
       refreshData();
     } catch (err) {
       setBackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
-      toast({ title: "Error en backfill", description: err instanceof Error ? err.message : "No se pudo ejecutar el backfill", variant: "destructive" });
+      toast({ title: "Error en backfill", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
     } finally {
       setBackfilling(false);
     }
+  };
+
+  const handleRunDiagnostics = async () => {
+    if (!currentWorkspace || !session) return;
+    setDiagRunning(true);
+    setDiagResults(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("meta-diagnostics", {
+        body: { workspace_id: currentWorkspace.id },
+      });
+      if (error) throw error;
+      setDiagResults(data?.results || []);
+      toast({ title: "Diagnóstico completo", description: `${data?.results?.length || 0} cuentas verificadas.` });
+      refreshData();
+    } catch (err) {
+      toast({ title: "Error en diagnóstico", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally {
+      setDiagRunning(false);
+    }
+  };
+
+  const toggleAccountSelection = (accountId: string) => {
+    setSelectedAccounts((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
   };
 
   const isAdmin = workspaceRole === "admin";
   const statusKey = metaIntegration?.status ?? "disconnected";
   const statusInfo = STATUS_CONFIG[statusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
   const StatusIcon = statusInfo.icon;
+
+  const getSyncBadge = (status: string, message: string | null, lastError: Record<string, string> | null) => {
+    if (status === "ok") return <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>;
+    if (status === "unknown") return <Badge variant="outline" className="text-xs">—</Badge>;
+
+    const label = status === "blocked" ? "Blocked" : status === "error_token" ? "Token Error" : "Error";
+    const tooltipContent = lastError
+      ? `Code: ${lastError.code || "—"}, Subcode: ${lastError.subcode || "—"}\n${lastError.message || message || "Error desconocido"}${lastError.fbtrace_id ? `\nTrace: ${lastError.fbtrace_id}` : ""}`
+      : message || "Error desconocido";
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="destructive" className="text-xs cursor-help">{label}</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm text-xs whitespace-pre-wrap font-mono">{tooltipContent}</TooltipContent>
+      </Tooltip>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -272,7 +322,7 @@ export default function Connections() {
               <Plug className="h-5 w-5" />
               Meta Ads
             </CardTitle>
-            <CardDescription>Facebook & Instagram Ads</CardDescription>
+            <CardDescription>Facebook & Instagram Ads · Scopes: ads_read, business_management</CardDescription>
           </div>
 
           <div className="flex items-center gap-3">
@@ -302,7 +352,7 @@ export default function Connections() {
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent className="max-w-xs text-xs">
-                      Force reauth: re-solicita permisos a Facebook. Usá esto si tenés cuentas bloqueadas o cambiaste de Business Manager.
+                      Force reauth: re-solicita permisos. Usá esto si tenés cuentas bloqueadas o cambiaste de BM.
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -348,14 +398,12 @@ export default function Connections() {
               </div>
             )}
 
-            {/* Blocked checklist */}
             {oauthBlocked && (
               <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 space-y-1.5">
                 <p className="font-sans font-medium text-destructive">El navegador bloqueó la ventana de OAuth. Probá:</p>
                 <ul className="list-disc list-inside font-sans space-y-0.5 text-foreground">
                   <li>Usá el botón <strong>"Copiar URL"</strong> y pegala en una pestaña nueva</li>
                   <li>Probá Chrome en perfil limpio / incógnito</li>
-                  <li>Probá Edge sin extensiones</li>
                   <li>Desactivá adblockers (uBlock, AdGuard, etc.)</li>
                   <li>Si usás la Preview de Lovable, abrí la app publicada y conectá desde ahí</li>
                 </ul>
@@ -393,7 +441,7 @@ export default function Connections() {
                         <span className="text-muted-foreground text-xs cursor-help">(?)</span>
                       </TooltipTrigger>
                       <TooltipContent className="max-w-xs text-xs">
-                        Sincroniza datos históricos de Meta Ads. Máximo 90 días. Cooldown: 1 backfill manual cada 6 horas.
+                        Sincroniza datos históricos. Máximo 90 días. Cooldown: 1 backfill manual cada 6h.
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -413,6 +461,57 @@ export default function Connections() {
                 </div>
               )}
 
+              {/* Meta Diagnostics Panel */}
+              {isAdmin && metaIntegration.status === "connected" && (
+                <div className="rounded-md border p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Stethoscope className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Meta Diagnostics</span>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={handleRunDiagnostics} disabled={diagRunning}>
+                      {diagRunning ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5 mr-1.5" />}
+                      {diagRunning ? "Verificando…" : "Verificar acceso"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Hace 1 llamada liviana por ad account para verificar si el token tiene acceso real.</p>
+
+                  {diagResults && (
+                    <div className="rounded-md border overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="px-2 py-1.5 text-left font-medium">Account</th>
+                            <th className="px-2 py-1.5 text-left font-medium">Business</th>
+                            <th className="px-2 py-1.5 text-left font-medium">Status</th>
+                            <th className="px-2 py-1.5 text-left font-medium">Error</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {diagResults.map((r) => (
+                            <tr key={r.account_id} className="border-b last:border-0">
+                              <td className="px-2 py-1.5">{r.name} <span className="text-muted-foreground font-mono">({r.external_id})</span></td>
+                              <td className="px-2 py-1.5">{r.business ? r.business.name : "—"}</td>
+                              <td className="px-2 py-1.5">
+                                {r.status === "ok" ? (
+                                  <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>
+                                ) : (
+                                  <Badge variant="destructive" className="text-xs">
+                                    {r.status === "blocked" ? "Blocked" : r.status === "error_token" ? "Token" : "Error"}
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 font-mono max-w-xs truncate">{r.error?.message || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Ad Accounts Table */}
               {metaAccounts.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">Ad Accounts ({metaAccounts.length})</h3>
@@ -432,7 +531,7 @@ export default function Connections() {
                         {metaAccounts.map((acct) => {
                           const businessName = getMetaString(acct.metadata, "business_name");
                           const businessId = getMetaString(acct.metadata, "business_id");
-                          const { status: syncSt, message: syncMsg } = getAccountSyncStatus(acct.metadata);
+                          const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
 
                           return (
                             <tr key={acct.id} className="border-b last:border-0">
@@ -457,18 +556,7 @@ export default function Connections() {
                                 </Badge>
                               </td>
                               <td className="px-3 py-2">
-                                {syncSt === "ok" ? (
-                                  <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>
-                                ) : (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge variant="destructive" className="text-xs cursor-help">
-                                        {syncSt === "blocked" ? "Blocked" : "Error"}
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-xs text-xs">{syncMsg || "Error desconocido"}</TooltipContent>
-                                  </Tooltip>
-                                )}
+                                {getSyncBadge(syncSt, syncMsg, lastError)}
                               </td>
                             </tr>
                           );
