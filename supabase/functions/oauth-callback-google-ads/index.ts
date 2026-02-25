@@ -278,28 +278,18 @@ async function upsertAccount(
 }
 
 function redirectToApp(status: string): Response {
-  const html = `<!DOCTYPE html><html><body><script>
-    if (window.opener) {
-      window.opener.postMessage({ type: 'oauth-complete', provider: 'google_ads', status: '${status}' }, '*');
-      window.close();
-    } else {
-      var appUrl = '${Deno.env.get("APP_URL") || "https://nebulab-command-center.lovable.app"}';
-      window.location.href = appUrl + '/connections?oauth=google_ads&status=${status}';
-    }
-  </script></body></html>`;
-  return new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
+  const appUrl = Deno.env.get("APP_URL") || "https://nebulab-command-center.lovable.app";
+  return new Response(null, {
+    status: 302,
+    headers: { "Location": `${appUrl}/connections?oauth=google_ads&status=${status}` },
+  });
 }
 
 function redirectWithError(message: string): Response {
+  const appUrl = Deno.env.get("APP_URL") || "https://nebulab-command-center.lovable.app";
   const encodedMsg = encodeURIComponent(message);
-  const html = `<!DOCTYPE html><html><body><script>
-    if (window.opener) {
-      window.opener.postMessage({ type: 'oauth-complete', provider: 'google_ads', status: 'error', message: decodeURIComponent('${encodedMsg}') }, '*');
-      window.close();
-    } else {
-      var appUrl = '${Deno.env.get("APP_URL") || "https://nebulab-command-center.lovable.app"}';
-      window.location.href = appUrl + '/connections?oauth=google_ads&status=error&message=${encodedMsg}';
-    }
-  </script></body></html>`;
-  return new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
+  return new Response(null, {
+    status: 302,
+    headers: { "Location": `${appUrl}/connections?oauth=google_ads&status=error&message=${encodedMsg}` },
+  });
 }
