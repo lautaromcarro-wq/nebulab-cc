@@ -967,6 +967,112 @@ export type Database = {
           },
         ]
       }
+      meta_allowed_accounts: {
+        Row: {
+          account_id: string
+          account_name: string
+          created_at: string
+          enabled: boolean
+          id: string
+          workspace_id: string
+        }
+        Insert: {
+          account_id: string
+          account_name?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          workspace_id: string
+        }
+        Update: {
+          account_id?: string
+          account_name?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_allowed_accounts_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_allowed_accounts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_allowed_businesses: {
+        Row: {
+          business_id: string
+          business_name: string
+          created_at: string
+          enabled: boolean
+          id: string
+          workspace_id: string
+        }
+        Insert: {
+          business_id: string
+          business_name?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          workspace_id: string
+        }
+        Update: {
+          business_id?: string
+          business_name?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_allowed_businesses_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_sync_prefs: {
+        Row: {
+          created_at: string
+          id: string
+          mode: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mode?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mode?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_sync_prefs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       performance_daily: {
         Row: {
           account_id: string
