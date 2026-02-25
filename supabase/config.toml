@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.meta-diagnostics]
 verify_jwt = false
+
+[functions.debug-env-google-ads]
+verify_jwt = false
