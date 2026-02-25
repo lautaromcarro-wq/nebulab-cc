@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
     const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_ADS_CLIENT_ID")!;
     const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_ADS_CLIENT_SECRET")!;
     const GOOGLE_DEVELOPER_TOKEN = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
-    const GOOGLE_LOGIN_CUSTOMER_ID = Deno.env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID")!;
+    const GOOGLE_LOGIN_CUSTOMER_ID = (Deno.env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID") || "").replace(/[-\s]/g, "");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -135,11 +135,11 @@ async function discoverMccClients(
   supabase: any, accessToken: string, developerToken: string,
   loginCustomerId: string, workspaceId: string, integrationId: string
 ) {
-  try {
-    // Use Google Ads API to list accessible customers
-    const cleanLoginId = loginCustomerId.replace(/-/g, "");
+  const cleanLoginId = loginCustomerId.replace(/[-\s]/g, "");
+  console.log("[discovery] Starting MCC discovery with login_customer_id:", cleanLoginId);
 
-    // First get the list of accessible customer IDs
+  try {
+    // Step 1: Sanity check — listAccessibleCustomers (just for logging)
     const listRes = await fetch(
       "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
       {
@@ -150,86 +150,162 @@ async function discoverMccClients(
       }
     );
     const listData = await listRes.json();
+    const accessibleIds = (listData.resourceNames || []).map((rn: string) => rn.replace("customers/", ""));
+    console.log("[discovery] listAccessibleCustomers returned:", accessibleIds.length, "ids:", accessibleIds);
 
-    if (listData.error) {
-      console.error("listAccessibleCustomers error:", JSON.stringify(listData.error));
-      // Still save MCC itself as an account
-      await upsertAccount(supabase, workspaceId, integrationId, {
-        customerId: cleanLoginId,
-        descriptiveName: "MCC (Manager)",
-        currencyCode: "USD",
-        timeZone: "America/New_York",
-        manager: true,
-        status: "active",
+    // Step 2: Query customer_client on the MCC to find child accounts
+    const gaqlQuery = `
+      SELECT
+        customer_client.client_customer,
+        customer_client.descriptive_name,
+        customer_client.level,
+        customer_client.manager,
+        customer_client.status,
+        customer_client.currency_code,
+        customer_client.time_zone,
+        customer_client.id
+      FROM customer_client
+      WHERE customer_client.level <= 1
+    `.trim();
+
+    const searchRes = await fetch(
+      `https://googleads.googleapis.com/v18/customers/${cleanLoginId}/googleAds:searchStream`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "developer-token": developerToken,
+          "login-customer-id": cleanLoginId,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: gaqlQuery }),
+      }
+    );
+
+    const searchData = await searchRes.json();
+
+    if (searchData.error) {
+      console.error("[discovery] GAQL customer_client error:", JSON.stringify(searchData.error));
+      // Log full error to health_events
+      await supabase.from("health_events").insert({
+        workspace_id: workspaceId,
+        check_type: "google_ads_discovery",
+        severity: "critical",
+        message: `MCC discovery failed: ${searchData.error.message || "Unknown error"}`,
+        provider: "google_ads",
+      });
+      // Log to sync_runs
+      await supabase.from("sync_runs").insert({
+        workspace_id: workspaceId,
+        provider: "google_ads",
+        job_name: "mcc_discovery",
+        status: "error",
+        error_message: searchData.error.message || "GAQL query failed",
+        error_code: searchData.error.status || "UNKNOWN",
+        ended_at: new Date().toISOString(),
+        details: {
+          login_customer_id: cleanLoginId,
+          response_status: searchData.error.status,
+          response_headers_masked: "see edge function logs",
+        },
       });
       return;
     }
 
-    const resourceNames: string[] = listData.resourceNames || [];
-    const customerIds = resourceNames.map((rn: string) => rn.replace("customers/", ""));
-
-    // For each customer, get details via GoogleAdsService.SearchStream using MCC
-    for (const custId of customerIds) {
-      try {
-        const query = `SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.manager, customer.status FROM customer LIMIT 1`;
-
-        const searchRes = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${custId}/googleAds:searchStream`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "developer-token": developerToken,
-              "login-customer-id": cleanLoginId,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ query }),
-          }
-        );
-
-        const searchData = await searchRes.json();
-
-        if (searchData.error || !searchData[0]?.results?.length) {
-          // Account not accessible - save with blocked status
-          await upsertAccount(supabase, workspaceId, integrationId, {
-            customerId: custId,
-            descriptiveName: `Customer ${custId}`,
-            currencyCode: null,
-            timeZone: null,
-            manager: false,
-            status: "blocked",
-            errorMessage: searchData.error?.message || "Cannot access customer details",
-          });
-          continue;
-        }
-
-        const customer = searchData[0].results[0].customer;
-        const isManager = customer.manager === true;
-
-        // Skip manager accounts for sync purposes but still save them
-        await upsertAccount(supabase, workspaceId, integrationId, {
-          customerId: String(customer.id),
-          descriptiveName: customer.descriptiveName || `Customer ${customer.id}`,
-          currencyCode: customer.currencyCode || null,
-          timeZone: customer.timeZone || null,
-          manager: isManager,
-          status: customer.status === 2 ? "active" : "disabled",
-        });
-      } catch (err) {
-        console.error(`Error fetching customer ${custId}:`, err);
-        await upsertAccount(supabase, workspaceId, integrationId, {
-          customerId: custId,
-          descriptiveName: `Customer ${custId}`,
-          currencyCode: null,
-          timeZone: null,
-          manager: false,
-          status: "blocked",
-          errorMessage: err instanceof Error ? err.message : "Unknown error",
-        });
+    // Parse results from searchStream (array of batches)
+    const allResults: any[] = [];
+    for (const batch of searchData) {
+      if (batch.results) {
+        allResults.push(...batch.results);
       }
     }
+
+    console.log("[discovery] customer_client returned", allResults.length, "results");
+
+    if (allResults.length === 0) {
+      console.warn("[discovery] 0 child accounts found. Full response:", JSON.stringify(searchData));
+      await supabase.from("health_events").insert({
+        workspace_id: workspaceId,
+        check_type: "google_ads_discovery",
+        severity: "warn",
+        message: `MCC ${cleanLoginId}: 0 child accounts found`,
+        provider: "google_ads",
+      });
+      await supabase.from("sync_runs").insert({
+        workspace_id: workspaceId,
+        provider: "google_ads",
+        job_name: "mcc_discovery",
+        status: "success",
+        ended_at: new Date().toISOString(),
+        items_upserted: 0,
+        details: {
+          login_customer_id: cleanLoginId,
+          customers_found: 0,
+          full_response: searchData,
+        },
+      });
+      return;
+    }
+
+    // Step 3: Upsert each child account
+    let upsertedCount = 0;
+    const sampleAccounts: { id: string; name: string }[] = [];
+
+    for (const result of allResults) {
+      const cc = result.customerClient;
+      if (!cc) continue;
+
+      // Extract customer ID from resource name or id field
+      const clientCustomerId = cc.id
+        ? String(cc.id)
+        : (cc.clientCustomer || "").replace("customers/", "");
+
+      if (!clientCustomerId) continue;
+
+      const isManager = cc.manager === true;
+      const statusStr = cc.status === 2 || cc.status === "ENABLED" ? "active" : "disabled";
+
+      await upsertAccount(supabase, workspaceId, integrationId, {
+        customerId: clientCustomerId,
+        descriptiveName: cc.descriptiveName || `Customer ${clientCustomerId}`,
+        currencyCode: cc.currencyCode || null,
+        timeZone: cc.timeZone || null,
+        manager: isManager,
+        status: statusStr,
+      });
+      upsertedCount++;
+
+      if (sampleAccounts.length < 5) {
+        sampleAccounts.push({ id: clientCustomerId, name: cc.descriptiveName || "" });
+      }
+    }
+
+    console.log("[discovery] Upserted", upsertedCount, "accounts. Sample:", JSON.stringify(sampleAccounts));
+
+    // Log success to sync_runs
+    await supabase.from("sync_runs").insert({
+      workspace_id: workspaceId,
+      provider: "google_ads",
+      job_name: "mcc_discovery",
+      status: "success",
+      ended_at: new Date().toISOString(),
+      items_upserted: upsertedCount,
+      details: {
+        login_customer_id: cleanLoginId,
+        customers_found: allResults.length,
+        sample_accounts: sampleAccounts,
+      },
+    });
+
   } catch (err) {
-    console.error("MCC discovery error:", err instanceof Error ? err.message : err);
+    console.error("[discovery] MCC discovery error:", err instanceof Error ? err.message : err);
+    await supabase.from("health_events").insert({
+      workspace_id: workspaceId,
+      check_type: "google_ads_discovery",
+      severity: "critical",
+      message: `MCC discovery exception: ${err instanceof Error ? err.message : "Unknown"}`,
+      provider: "google_ads",
+    }).catch(() => {});
   }
 }
 
