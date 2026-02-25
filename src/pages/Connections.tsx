@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Tables, Json } from "@/integrations/supabase/types";
@@ -21,7 +21,6 @@ const STATUS_CONFIG = {
   disconnected: { label: "Disconnected", icon: XCircle, variant: "outline" as const, className: "bg-muted text-muted-foreground" },
 };
 
-// Helper to safely extract string from Json metadata
 function getMetaString(metadata: Json | null, key: string): string | null {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
   const val = (metadata as Record<string, Json | undefined>)[key];
@@ -37,20 +36,42 @@ function getAccountSyncStatus(metadata: Json | null): { status: string; message:
   return { status: "ok", message: null };
 }
 
-/** Open OAuth URL - handles iframe context by using window.open */
-function openAuthWindow(url: string) {
-  // Always use window.open for a new tab - works inside iframes and avoids Facebook blocking
-  const win = window.open(url, "_blank", "noopener,noreferrer");
-  if (!win) {
-    // Popup blocked - try top-level navigation as fallback
-    if (window.self !== window.top) {
-      try {
-        window.top!.location.href = url;
-        return;
-      } catch { /* cross-origin, fall through */ }
-    }
-    window.location.href = url;
+/** Parse OAuth URL for diagnostic display */
+function parseOAuthDiagnostics(url: string) {
+  try {
+    const parsed = new URL(url);
+    return {
+      redirectUri: parsed.searchParams.get("redirect_uri") || "MISSING",
+      responseType: parsed.searchParams.get("response_type") || "MISSING",
+      scope: parsed.searchParams.get("scope") || "MISSING",
+      clientId: parsed.searchParams.get("client_id") ? "***configured***" : "MISSING",
+      hasState: !!parsed.searchParams.get("state"),
+      warnings: [
+        ...(parsed.searchParams.get("response_type") !== "code" ? ["⚠ response_type no es 'code'"] : []),
+        ...(!parsed.searchParams.get("redirect_uri") ? ["⚠ redirect_uri faltante"] : []),
+        ...(!parsed.searchParams.get("scope") ? ["⚠ scope faltante"] : []),
+      ],
+    };
+  } catch {
+    return null;
   }
+}
+
+/** Default: top-level redirect */
+function navigateTopLevel(url: string) {
+  if (window.self !== window.top) {
+    try {
+      window.top!.location.href = url;
+      return;
+    } catch { /* cross-origin fallback */ }
+  }
+  window.location.assign(url);
+}
+
+/** Secondary: open in new tab */
+function openInNewTab(url: string): boolean {
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  return !!win;
 }
 
 export default function Connections() {
@@ -65,6 +86,8 @@ export default function Connections() {
   const [backfillDays, setBackfillDays] = useState(30);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
+  const [oauthDiag, setOauthDiag] = useState<{ url: string; diag: ReturnType<typeof parseOAuthDiagnostics> } | null>(null);
+  const [oauthBlocked, setOauthBlocked] = useState(false);
 
   const refreshData = async () => {
     if (!currentWorkspace) return;
@@ -113,15 +136,19 @@ export default function Connections() {
         toast({ title: "Error al conectar Meta", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
       }
       setConnecting(false);
+      setOauthDiag(null);
+      setOauthBlocked(false);
       refreshData();
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [currentWorkspace]);
 
+  /** Fetch OAuth URL and navigate top-level (default) */
   const handleConnectMeta = async (forceReauth = false) => {
     if (!currentWorkspace || !session) return;
     setConnecting(true);
+    setOauthBlocked(false);
 
     try {
       const { data, error } = await supabase.functions.invoke("oauth-start-meta", {
@@ -130,7 +157,10 @@ export default function Connections() {
 
       if (error) throw error;
       if (data?.url) {
-        openAuthWindow(data.url);
+        const diag = parseOAuthDiagnostics(data.url);
+        setOauthDiag({ url: data.url, diag });
+        // Default: top-level redirect
+        navigateTopLevel(data.url);
       }
     } catch (err) {
       toast({
@@ -139,6 +169,27 @@ export default function Connections() {
         variant: "destructive",
       });
       setConnecting(false);
+    }
+  };
+
+  /** Secondary: open in new tab */
+  const handleOpenNewTab = () => {
+    if (!oauthDiag?.url) return;
+    const ok = openInNewTab(oauthDiag.url);
+    if (!ok) {
+      setOauthBlocked(true);
+      toast({ title: "Popup bloqueado", description: "Permití popups o usá 'Copiar URL' y pegala en una pestaña nueva.", variant: "destructive" });
+    }
+  };
+
+  /** Copy OAuth URL to clipboard */
+  const handleCopyUrl = async () => {
+    if (!oauthDiag?.url) return;
+    try {
+      await navigator.clipboard.writeText(oauthDiag.url);
+      toast({ title: "URL copiada", description: "Pegala en una nueva pestaña del navegador." });
+    } catch {
+      toast({ title: "Error al copiar", description: "Copiá la URL manualmente desde el panel de diagnóstico.", variant: "destructive" });
     }
   };
 
@@ -241,7 +292,6 @@ export default function Connections() {
               <div className="flex items-center gap-1">
                 <Button size="sm" onClick={() => handleConnectMeta(false)} disabled={connecting || loading}>
                   {connecting && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
                   {metaIntegration ? "Reconectar" : "Conectar Meta"}
                 </Button>
                 {metaIntegration && (
@@ -260,6 +310,59 @@ export default function Connections() {
             )}
           </div>
         </CardHeader>
+
+        {/* OAuth Diagnostic Panel */}
+        {oauthDiag && (
+          <div className="mx-6 mb-4 rounded-md border border-border bg-muted/30 p-3 space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-medium flex items-center gap-1.5 text-sm">
+                <Info className="h-4 w-4 text-muted-foreground" />
+                OAuth Diagnóstico
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleOpenNewTab}>
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  Abrir en nueva pestaña
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCopyUrl}>
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copiar URL
+                </Button>
+              </div>
+            </div>
+
+            {oauthDiag.diag && (
+              <div className="space-y-1 font-mono">
+                <p><span className="text-muted-foreground">redirect_uri:</span> {decodeURIComponent(oauthDiag.diag.redirectUri)}</p>
+                <p><span className="text-muted-foreground">response_type:</span> {oauthDiag.diag.responseType}</p>
+                <p><span className="text-muted-foreground">scope:</span> {oauthDiag.diag.scope}</p>
+                <p><span className="text-muted-foreground">client_id:</span> {oauthDiag.diag.clientId}</p>
+                <p><span className="text-muted-foreground">state:</span> {oauthDiag.diag.hasState ? "✓ presente" : "✗ FALTANTE"}</p>
+                {oauthDiag.diag.warnings.length > 0 && (
+                  <div className="mt-1 space-y-0.5">
+                    {oauthDiag.diag.warnings.map((w, i) => (
+                      <p key={i} className="text-destructive font-sans font-medium">{w}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Blocked checklist */}
+            {oauthBlocked && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2.5 space-y-1.5">
+                <p className="font-sans font-medium text-destructive">El navegador bloqueó la ventana de OAuth. Probá:</p>
+                <ul className="list-disc list-inside font-sans space-y-0.5 text-foreground">
+                  <li>Usá el botón <strong>"Copiar URL"</strong> y pegala en una pestaña nueva</li>
+                  <li>Probá Chrome en perfil limpio / incógnito</li>
+                  <li>Probá Edge sin extensiones</li>
+                  <li>Desactivá adblockers (uBlock, AdGuard, etc.)</li>
+                  <li>Si usás la Preview de Lovable, abrí la app publicada y conectá desde ahí</li>
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         <CardContent>
           {!currentWorkspace ? (
