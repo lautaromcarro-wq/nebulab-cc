@@ -204,31 +204,21 @@ export default function Connections() {
     if (!currentWorkspace || !session) return;
     setConnectingGoogle(true); setOauthBlocked(false);
     try {
-      // Build direct URL to edge function (GET → 302 redirect to Google)
-      // This bypasses iframe/fetch issues entirely
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "hagggvnmwsnshkofhmmq";
       const startUrl = `https://${projectId}.supabase.co/functions/v1/oauth-start-google-ads?workspace_id=${encodeURIComponent(currentWorkspace.id)}`;
       
-      // Try opening in new tab first
-      const win = window.open(startUrl, "_blank", "noopener,noreferrer");
-      if (!win) {
-        // Popup blocked — fall back to top-level navigation
-        setOauthBlocked(true);
-        toast({
-          title: "Popup bloqueado",
-          description: "Redirigiendo en esta pestaña. Si no funciona, habilitá popups para este sitio.",
-          variant: "destructive",
-        });
-        // Navigate top-level (works even inside iframe)
-        if (window.self !== window.top) {
-          try { window.top!.location.href = startUrl; return; } catch { /* cross-origin */ }
-        }
-        window.location.href = startUrl;
-      }
+      // Use a temporary <a> element with target="_blank" — browsers allow this
+      // from user-initiated clicks better than window.open with features string
+      const link = document.createElement("a");
+      link.href = startUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth", variant: "destructive" });
     } finally {
-      // Reset after a delay since the flow happens in another tab
       setTimeout(() => setConnectingGoogle(false), 3000);
     }
   };
