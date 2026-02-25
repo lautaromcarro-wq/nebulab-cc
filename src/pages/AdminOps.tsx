@@ -11,7 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Shield, Activity, Settings2, Database, AlertTriangle } from "lucide-react";
+import { Shield, Activity, Settings2, Database, AlertTriangle, Bug } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 
 const LIMITS = {
@@ -74,6 +75,22 @@ export default function AdminOps() {
   const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
   const [coverage, setCoverage] = useState<DataCoverage | null>(null);
   const [loading, setLoading] = useState(true);
+  const [debugResult, setDebugResult] = useState<Record<string, unknown> | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  const runEnvDebug = async () => {
+    setDebugLoading(true);
+    setDebugResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("debug-env-google-ads");
+      if (error) setDebugResult({ error: error.message });
+      else setDebugResult(data);
+    } catch (e: unknown) {
+      setDebugResult({ error: e instanceof Error ? e.message : "Unknown error" });
+    } finally {
+      setDebugLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!currentWorkspace) return;
@@ -214,6 +231,26 @@ export default function AdminOps() {
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Google Ads Env Debug */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bug className="h-4 w-4" />
+            Google Ads Env Debug
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button variant="outline" size="sm" onClick={runEnvDebug} disabled={debugLoading}>
+            {debugLoading ? "Cargando…" : "Run Google Env Debug"}
+          </Button>
+          {debugResult && (
+            <pre className="text-xs bg-muted p-3 rounded overflow-x-auto whitespace-pre-wrap font-mono">
+              {JSON.stringify(debugResult, null, 2)}
+            </pre>
+          )}
         </CardContent>
       </Card>
 
