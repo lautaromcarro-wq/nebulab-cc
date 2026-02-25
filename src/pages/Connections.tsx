@@ -147,9 +147,26 @@ export default function Connections() {
       setSearchParams(searchParams, { replace: true });
     }
     if (oauthProvider === "google_ads") {
-      if (status === "success") toast({ title: "Google Ads conectado", description: "Cuentas descubiertas exitosamente." });
-      else if (status === "error") toast({ title: "Error al conectar Google Ads", description: message || "Ocurrió un error.", variant: "destructive" });
-      searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message");
+      const corrId = searchParams.get("correlation_id");
+      if (status === "success") {
+        toast({ title: "Google Ads conectado", description: "Cuentas descubiertas exitosamente." });
+      } else if (status === "error") {
+        const debugInfo = corrId ? `\n\nCorrelation ID: ${corrId}` : "";
+        toast({
+          title: "Error al conectar Google Ads",
+          description: (message || "Ocurrió un error.") + debugInfo,
+          variant: "destructive",
+          action: corrId ? (
+            <Button variant="outline" size="sm" className="shrink-0" onClick={() => {
+              navigator.clipboard.writeText(`correlation_id: ${corrId}\nerror: ${message || "unknown"}\nprovider: google_ads`);
+              toast({ title: "Debug info copiada" });
+            }}>
+              <Copy className="h-3 w-3 mr-1" /> Copy debug
+            </Button>
+          ) : undefined,
+        });
+      }
+      searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message"); searchParams.delete("correlation_id");
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);

@@ -1,35 +1,64 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 Deno.serve(async (req) => {
+  const correlationId = crypto.randomUUID();
+
   try {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const stateParam = url.searchParams.get("state");
     const errorParam = url.searchParams.get("error");
+    const errorDesc = url.searchParams.get("error_description");
+
+    // Structured log
+    console.log("[oauth-callback-google-ads] Incoming:", JSON.stringify({
+      correlation_id: correlationId,
+      provider: "google",
+      code_present: !!code,
+      state_present: !!stateParam,
+      error: errorParam,
+      error_description: errorDesc,
+    }));
 
     if (errorParam) {
-      return redirectWithError(`Google denied access: ${errorParam}`);
+      return redirectWithError(`Google denied access: ${errorParam}`, correlationId);
     }
     if (!code || !stateParam) {
-      return redirectWithError("Missing code or state parameter");
+      return redirectWithError("Missing code or state parameter", correlationId);
     }
 
     let workspace_id: string;
+    let stateCorrelationId: string | undefined;
     try {
       const parsed = JSON.parse(atob(stateParam));
       workspace_id = parsed.workspace_id;
+      stateCorrelationId = parsed.correlation_id;
     } catch {
-      return redirectWithError("Invalid state parameter");
+      return redirectWithError("Invalid state parameter", correlationId);
     }
+
+    // Use the correlation_id from state if available
+    const finalCorrelationId = stateCorrelationId || correlationId;
 
     const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_ADS_CLIENT_ID")!;
     const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_ADS_CLIENT_SECRET")!;
     const GOOGLE_DEVELOPER_TOKEN = Deno.env.get("GOOGLE_ADS_DEVELOPER_TOKEN")!;
-    const GOOGLE_LOGIN_CUSTOMER_ID = (Deno.env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID") || "").replace(/[-\s]/g, "");
+    // Normalize: strip all non-digits
+    const GOOGLE_LOGIN_CUSTOMER_ID = (Deno.env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID") || "").replace(/\D/g, "");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+    // Use the EXACT same redirect_uri as oauth-start
     const redirectUri = `${SUPABASE_URL}/functions/v1/oauth-callback-google-ads`;
+
+    console.log("[oauth-callback-google-ads] Config:", JSON.stringify({
+      correlation_id: finalCorrelationId,
+      workspace_id,
+      redirect_uri: redirectUri,
+      client_id_prefix: GOOGLE_CLIENT_ID?.substring(0, 8),
+      login_customer_id: GOOGLE_LOGIN_CUSTOMER_ID,
+      developer_token_present: !!GOOGLE_DEVELOPER_TOKEN,
+    }));
 
     // 1. Exchange code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -45,7 +74,11 @@ Deno.serve(async (req) => {
     });
     const tokenData = await tokenRes.json();
     if (tokenData.error) {
-      return redirectWithError(`Token exchange failed: ${tokenData.error_description || tokenData.error}`);
+      console.error("[oauth-callback-google-ads] Token exchange failed:", JSON.stringify({
+        error: tokenData.error,
+        error_description: tokenData.error_description,
+      }));
+      return redirectWithError(`Token exchange failed: ${tokenData.error_description || tokenData.error}`, finalCorrelationId);
     }
 
     const accessToken = tokenData.access_token;
@@ -64,7 +97,7 @@ Deno.serve(async (req) => {
     // 4. Discover MCC client accounts
     await discoverMccClients(
       supabase, accessToken, GOOGLE_DEVELOPER_TOKEN, GOOGLE_LOGIN_CUSTOMER_ID,
-      workspace_id, integrationId
+      workspace_id, integrationId, finalCorrelationId
     );
 
     // 5. Log sync run
@@ -75,10 +108,31 @@ Deno.serve(async (req) => {
 
     return redirectToApp("success");
   } catch (error) {
-    console.error("Google Ads OAuth callback error:", error instanceof Error ? error.message : error);
-    return redirectWithError("Internal server error");
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("[oauth-callback-google-ads] Exception:", JSON.stringify({ correlation_id: correlationId, message, stack }));
+
+    // Best-effort health event
+    try {
+      const sbUrl = Deno.env.get("SUPABASE_URL");
+      const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (sbUrl && sbKey) {
+        const sb = createClient(sbUrl, sbKey);
+        await sb.from("health_events").insert({
+          workspace_id: "00000000-0000-0000-0000-000000000000",
+          check_type: "google_oauth_error",
+          severity: "critical",
+          message: `oauth-callback exception: ${message}`,
+          provider: "google_ads",
+        });
+      }
+    } catch { /* best effort */ }
+
+    return redirectWithError("Internal server error", correlationId);
   }
 });
+
+// ── Helpers ──
 
 async function upsertIntegration(supabase: any, workspaceId: string, expiresAt: string): Promise<string> {
   const payload = {
@@ -133,13 +187,16 @@ async function saveCredential(
 
 async function discoverMccClients(
   supabase: any, accessToken: string, developerToken: string,
-  loginCustomerId: string, workspaceId: string, integrationId: string
+  loginCustomerId: string, workspaceId: string, integrationId: string,
+  correlationId: string
 ) {
-  const cleanLoginId = loginCustomerId.replace(/[-\s]/g, "");
-  console.log("[discovery] Starting MCC discovery with login_customer_id:", cleanLoginId);
+  console.log("[discovery] Starting MCC discovery:", JSON.stringify({
+    correlation_id: correlationId,
+    login_customer_id: loginCustomerId,
+  }));
 
   try {
-    // Step 1: Sanity check — listAccessibleCustomers (just for logging)
+    // Step 1: Sanity check — listAccessibleCustomers
     const listRes = await fetch(
       "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
       {
@@ -149,11 +206,17 @@ async function discoverMccClients(
         },
       }
     );
-    const listData = await listRes.json();
-    const accessibleIds = (listData.resourceNames || []).map((rn: string) => rn.replace("customers/", ""));
-    console.log("[discovery] listAccessibleCustomers returned:", accessibleIds.length, "ids:", accessibleIds);
 
-    // Step 2: Query customer_client on the MCC to find child accounts
+    if (!listRes.ok) {
+      const errText = await listRes.text();
+      console.error("[discovery] listAccessibleCustomers HTTP error:", listRes.status, errText.substring(0, 500));
+    } else {
+      const listData = await listRes.json();
+      const accessibleIds = (listData.resourceNames || []).map((rn: string) => rn.replace("customers/", ""));
+      console.log("[discovery] listAccessibleCustomers:", accessibleIds.length, "ids:", accessibleIds);
+    }
+
+    // Step 2: GAQL query on MCC to find child accounts
     const gaqlQuery = `
       SELECT
         customer_client.client_customer,
@@ -169,24 +232,54 @@ async function discoverMccClients(
     `.trim();
 
     const searchRes = await fetch(
-      `https://googleads.googleapis.com/v18/customers/${cleanLoginId}/googleAds:searchStream`,
+      `https://googleads.googleapis.com/v18/customers/${loginCustomerId}/googleAds:searchStream`,
       {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "developer-token": developerToken,
-          "login-customer-id": cleanLoginId,
+          "login-customer-id": loginCustomerId,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ query: gaqlQuery }),
       }
     );
 
+    // FIX: Check HTTP status before parsing JSON
+    if (!searchRes.ok) {
+      const errText = await searchRes.text();
+      console.error("[discovery] searchStream HTTP error:", searchRes.status, errText.substring(0, 1000));
+
+      await supabase.from("health_events").insert({
+        workspace_id: workspaceId,
+        check_type: "google_ads_discovery",
+        severity: "critical",
+        message: `MCC discovery HTTP ${searchRes.status}: ${errText.substring(0, 200)}`,
+        provider: "google_ads",
+      });
+
+      await supabase.from("sync_runs").insert({
+        workspace_id: workspaceId,
+        provider: "google_ads",
+        job_name: "mcc_discovery",
+        status: "error",
+        error_message: `HTTP ${searchRes.status}`,
+        error_code: String(searchRes.status),
+        ended_at: new Date().toISOString(),
+        details: {
+          correlation_id: correlationId,
+          login_customer_id: loginCustomerId,
+          response_status: searchRes.status,
+          response_body_preview: errText.substring(0, 500),
+        },
+      });
+      return;
+    }
+
     const searchData = await searchRes.json();
 
     if (searchData.error) {
-      console.error("[discovery] GAQL customer_client error:", JSON.stringify(searchData.error));
-      // Log full error to health_events
+      console.error("[discovery] GAQL error:", JSON.stringify(searchData.error));
       await supabase.from("health_events").insert({
         workspace_id: workspaceId,
         check_type: "google_ads_discovery",
@@ -194,7 +287,6 @@ async function discoverMccClients(
         message: `MCC discovery failed: ${searchData.error.message || "Unknown error"}`,
         provider: "google_ads",
       });
-      // Log to sync_runs
       await supabase.from("sync_runs").insert({
         workspace_id: workspaceId,
         provider: "google_ads",
@@ -204,9 +296,9 @@ async function discoverMccClients(
         error_code: searchData.error.status || "UNKNOWN",
         ended_at: new Date().toISOString(),
         details: {
-          login_customer_id: cleanLoginId,
+          correlation_id: correlationId,
+          login_customer_id: loginCustomerId,
           response_status: searchData.error.status,
-          response_headers_masked: "see edge function logs",
         },
       });
       return;
@@ -214,21 +306,24 @@ async function discoverMccClients(
 
     // Parse results from searchStream (array of batches)
     const allResults: any[] = [];
-    for (const batch of searchData) {
-      if (batch.results) {
-        allResults.push(...batch.results);
+    if (Array.isArray(searchData)) {
+      for (const batch of searchData) {
+        if (batch.results) allResults.push(...batch.results);
       }
+    } else if (searchData.results) {
+      // Sometimes it's a single object
+      allResults.push(...searchData.results);
     }
 
     console.log("[discovery] customer_client returned", allResults.length, "results");
 
     if (allResults.length === 0) {
-      console.warn("[discovery] 0 child accounts found. Full response:", JSON.stringify(searchData));
+      console.warn("[discovery] 0 child accounts. Response:", JSON.stringify(searchData).substring(0, 1000));
       await supabase.from("health_events").insert({
         workspace_id: workspaceId,
         check_type: "google_ads_discovery",
         severity: "warn",
-        message: `MCC ${cleanLoginId}: 0 child accounts found`,
+        message: `MCC ${loginCustomerId}: 0 child accounts found`,
         provider: "google_ads",
       });
       await supabase.from("sync_runs").insert({
@@ -239,9 +334,9 @@ async function discoverMccClients(
         ended_at: new Date().toISOString(),
         items_upserted: 0,
         details: {
-          login_customer_id: cleanLoginId,
+          correlation_id: correlationId,
+          login_customer_id: loginCustomerId,
           customers_found: 0,
-          full_response: searchData,
         },
       });
       return;
@@ -255,11 +350,9 @@ async function discoverMccClients(
       const cc = result.customerClient;
       if (!cc) continue;
 
-      // Extract customer ID from resource name or id field
       const clientCustomerId = cc.id
         ? String(cc.id)
         : (cc.clientCustomer || "").replace("customers/", "");
-
       if (!clientCustomerId) continue;
 
       const isManager = cc.manager === true;
@@ -282,7 +375,6 @@ async function discoverMccClients(
 
     console.log("[discovery] Upserted", upsertedCount, "accounts. Sample:", JSON.stringify(sampleAccounts));
 
-    // Log success to sync_runs
     await supabase.from("sync_runs").insert({
       workspace_id: workspaceId,
       provider: "google_ads",
@@ -291,21 +383,27 @@ async function discoverMccClients(
       ended_at: new Date().toISOString(),
       items_upserted: upsertedCount,
       details: {
-        login_customer_id: cleanLoginId,
+        correlation_id: correlationId,
+        login_customer_id: loginCustomerId,
         customers_found: allResults.length,
         sample_accounts: sampleAccounts,
       },
     });
 
   } catch (err) {
-    console.error("[discovery] MCC discovery error:", err instanceof Error ? err.message : err);
-    await supabase.from("health_events").insert({
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[discovery] MCC discovery error:", errMsg);
+    // FIX: Don't use .catch() on supabase — just await and ignore error
+    const insertResult = await supabase.from("health_events").insert({
       workspace_id: workspaceId,
       check_type: "google_ads_discovery",
       severity: "critical",
-      message: `MCC discovery exception: ${err instanceof Error ? err.message : "Unknown"}`,
+      message: `MCC discovery exception: ${errMsg}`,
       provider: "google_ads",
-    }).catch(() => {});
+    });
+    if (insertResult.error) {
+      console.error("[discovery] Failed to log health event:", insertResult.error.message);
+    }
   }
 }
 
@@ -316,7 +414,6 @@ interface AccountInfo {
   timeZone: string | null;
   manager: boolean;
   status: string;
-  errorMessage?: string;
 }
 
 async function upsertAccount(
@@ -333,9 +430,9 @@ async function upsertAccount(
     integration_id: integrationId,
     metadata: {
       manager: info.manager,
-      manager_customer_id: Deno.env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID")?.replace(/-/g, "") || null,
-      enabled: !info.manager, // Managers not enabled for sync by default
-      ...(info.errorMessage ? { error_message: info.errorMessage, sync_status: "blocked" } : { sync_status: "ok" }),
+      manager_customer_id: (Deno.env.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID") || "").replace(/\D/g, ""),
+      enabled: !info.manager,
+      sync_status: "ok",
     },
   };
 
@@ -353,19 +450,16 @@ async function upsertAccount(
   }
 }
 
-function redirectToApp(status: string): Response {
+function redirectToApp(status: string, correlationId?: string): Response {
   const appUrl = Deno.env.get("APP_URL") || "https://nebulab-command-center.lovable.app";
-  return new Response(null, {
-    status: 302,
-    headers: { "Location": `${appUrl}/connections?oauth=google_ads&status=${status}` },
-  });
+  let loc = `${appUrl}/connections?oauth=google_ads&status=${status}`;
+  if (correlationId) loc += `&correlation_id=${correlationId}`;
+  return new Response(null, { status: 302, headers: { "Location": loc } });
 }
 
-function redirectWithError(message: string): Response {
+function redirectWithError(message: string, correlationId?: string): Response {
   const appUrl = Deno.env.get("APP_URL") || "https://nebulab-command-center.lovable.app";
-  const encodedMsg = encodeURIComponent(message);
-  return new Response(null, {
-    status: 302,
-    headers: { "Location": `${appUrl}/connections?oauth=google_ads&status=error&message=${encodedMsg}` },
-  });
+  let loc = `${appUrl}/connections?oauth=google_ads&status=error&message=${encodeURIComponent(message)}`;
+  if (correlationId) loc += `&correlation_id=${correlationId}`;
+  return new Response(null, { status: 302, headers: { "Location": loc } });
 }
