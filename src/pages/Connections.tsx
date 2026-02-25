@@ -204,19 +204,32 @@ export default function Connections() {
     if (!currentWorkspace || !session) return;
     setConnectingGoogle(true); setOauthBlocked(false);
     try {
-      const { data, error } = await supabase.functions.invoke("oauth-start-google-ads", {
-        body: { workspace_id: currentWorkspace.id },
-      });
-      if (error) throw error;
-      if (data?.url) {
-        const diag = parseOAuthDiagnostics(data.url);
-        setOauthDiag({ url: data.url, diag, provider: "google_ads" });
-        const ok = openAuthWindow(data.url);
-        if (!ok) { setOauthBlocked(true); navigateTopLevel(data.url); }
+      // Build direct URL to edge function (GET → 302 redirect to Google)
+      // This bypasses iframe/fetch issues entirely
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "hagggvnmwsnshkofhmmq";
+      const startUrl = `https://${projectId}.supabase.co/functions/v1/oauth-start-google-ads?workspace_id=${encodeURIComponent(currentWorkspace.id)}`;
+      
+      // Try opening in new tab first
+      const win = window.open(startUrl, "_blank", "noopener,noreferrer");
+      if (!win) {
+        // Popup blocked — fall back to top-level navigation
+        setOauthBlocked(true);
+        toast({
+          title: "Popup bloqueado",
+          description: "Redirigiendo en esta pestaña. Si no funciona, habilitá popups para este sitio.",
+          variant: "destructive",
+        });
+        // Navigate top-level (works even inside iframe)
+        if (window.self !== window.top) {
+          try { window.top!.location.href = startUrl; return; } catch { /* cross-origin */ }
+        }
+        window.location.href = startUrl;
       }
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth", variant: "destructive" });
-      setConnectingGoogle(false);
+    } finally {
+      // Reset after a delay since the flow happens in another tab
+      setTimeout(() => setConnectingGoogle(false), 3000);
     }
   };
 
