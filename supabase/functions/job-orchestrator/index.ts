@@ -233,7 +233,25 @@ async function executeJob(
       if (!integration) {
         return { items_upserted: 0, details: { skipped: true, reason: "no_connected_integration" } };
       }
-      return { items_upserted: 0, details: { stub: true, integration_id: integration.id } };
+      // Call both sync functions
+      const [dailyResp, sourceResp] = await Promise.all([
+        fetch(`${supabaseUrl}/functions/v1/sync-ga4-daily`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ workspace_id: workspaceId, days_back: 3, triggered_by: "cron" }),
+        }),
+        fetch(`${supabaseUrl}/functions/v1/sync-ga4-by-source`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ workspace_id: workspaceId, days_back: 3, triggered_by: "cron" }),
+        }),
+      ]);
+      const dailyData = dailyResp.ok ? await dailyResp.json() : { upserted: 0 };
+      const sourceData = sourceResp.ok ? await sourceResp.json() : { upserted: 0 };
+      return {
+        items_upserted: (dailyData.upserted ?? 0) + (sourceData.upserted ?? 0),
+        details: { daily: dailyData, by_source: sourceData },
+      };
     }
 
     case "resolve_creatives": {

@@ -876,6 +876,94 @@ export type Database = {
           },
         ]
       }
+      ga4_by_source: {
+        Row: {
+          created_at: string
+          currency: string
+          date: string
+          id: string
+          medium: string
+          purchases: number
+          revenue: number
+          source: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          date: string
+          id?: string
+          medium?: string
+          purchases?: number
+          revenue?: number
+          source?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          date?: string
+          id?: string
+          medium?: string
+          purchases?: number
+          revenue?: number
+          source?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ga4_by_source_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ga4_daily: {
+        Row: {
+          created_at: string
+          currency: string
+          date: string
+          id: string
+          purchases: number
+          revenue: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          date: string
+          id?: string
+          purchases?: number
+          revenue?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          date?: string
+          id?: string
+          purchases?: number
+          revenue?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ga4_daily_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       health_events: {
         Row: {
           check_type: string

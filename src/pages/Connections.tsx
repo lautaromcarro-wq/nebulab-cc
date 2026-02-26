@@ -103,17 +103,24 @@ export default function Connections() {
   const [metaAccounts, setMetaAccounts] = useState<Account[]>([]);
   const [googleIntegration, setGoogleIntegration] = useState<Integration | null>(null);
   const [googleAccounts, setGoogleAccounts] = useState<Account[]>([]);
+  const [ga4Integration, setGa4Integration] = useState<Integration | null>(null);
+  const [ga4Accounts, setGa4Accounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [connectingGa4, setConnectingGa4] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
+  const [syncingGa4, setSyncingGa4] = useState(false);
   const [backfillDays, setBackfillDays] = useState(30);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
   const [googleBackfillDays, setGoogleBackfillDays] = useState(30);
   const [googleBackfilling, setGoogleBackfilling] = useState(false);
   const [googleBackfillStatus, setGoogleBackfillStatus] = useState<string | null>(null);
+  const [ga4BackfillDays, setGa4BackfillDays] = useState(30);
+  const [ga4Backfilling, setGa4Backfilling] = useState(false);
+  const [ga4BackfillStatus, setGa4BackfillStatus] = useState<string | null>(null);
   const [oauthDiag, setOauthDiag] = useState<{ url: string; diag: ReturnType<typeof parseOAuthDiagnostics>; provider: string } | null>(null);
   const [oauthBlocked, setOauthBlocked] = useState(false);
   const [diagRunning, setDiagRunning] = useState(false);
@@ -132,17 +139,21 @@ export default function Connections() {
   const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
     setLoading(true);
-    const [intMetaRes, intGoogleRes, accMetaRes, accGoogleRes, settingsRes] = await Promise.all([
+    const [intMetaRes, intGoogleRes, intGa4Res, accMetaRes, accGoogleRes, accGa4Res, settingsRes] = await Promise.all([
       supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").maybeSingle(),
       supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "google_ads").maybeSingle(),
+      supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "ga4").maybeSingle(),
       supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").order("name"),
       supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "google_ads").order("name"),
+      supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "ga4").order("name"),
       supabase.from("workspace_account_settings").select("*").eq("workspace_id", currentWorkspace.id),
     ]);
     setMetaIntegration(intMetaRes.data);
     setGoogleIntegration(intGoogleRes.data);
+    setGa4Integration(intGa4Res.data);
     setMetaAccounts(accMetaRes.data ?? []);
     setGoogleAccounts(accGoogleRes.data ?? []);
+    setGa4Accounts(accGa4Res.data ?? []);
     setAccountSettings((settingsRes.data as AccountSetting[] | null) ?? []);
     setLoading(false);
   }, [currentWorkspace]);
@@ -180,6 +191,12 @@ export default function Connections() {
       searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message"); searchParams.delete("correlation_id");
       setSearchParams(searchParams, { replace: true });
     }
+    if (oauthProvider === "ga4") {
+      if (status === "success") toast({ title: "GA4 conectado", description: "Properties descubiertas exitosamente." });
+      else if (status === "error") toast({ title: "Error al conectar GA4", description: message || "Ocurrió un error.", variant: "destructive" });
+      searchParams.delete("oauth"); searchParams.delete("status"); searchParams.delete("message"); searchParams.delete("correlation_id");
+      setSearchParams(searchParams, { replace: true });
+    }
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -199,6 +216,10 @@ export default function Connections() {
         if (event.data.status === 'success') toast({ title: "Google Ads conectado", description: "Cuentas descubiertas exitosamente." });
         else toast({ title: "Error al conectar Google Ads", description: event.data.message || "Ocurrió un error.", variant: "destructive" });
         setConnectingGoogle(false);
+      } else if (provider === 'ga4') {
+        if (event.data.status === 'success') toast({ title: "GA4 conectado", description: "Properties descubiertas." });
+        else toast({ title: "Error al conectar GA4", description: event.data.message || "Error.", variant: "destructive" });
+        setConnectingGa4(false);
       }
       setOauthDiag(null); setOauthBlocked(false); refreshData();
     };
@@ -299,6 +320,77 @@ export default function Connections() {
       if (error) throw error;
       setGoogleAccounts(prev => prev.map(a => a.id === acct.id ? { ...a, metadata: newMeta } : a));
       toast({ title: `Cuenta ${!currentlyEnabled ? "habilitada" : "deshabilitada"} para sync` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingSettings(false); }
+  };
+
+  // ── GA4 handlers ──
+  const handleConnectGa4 = async () => {
+    if (!currentWorkspace || !session) return;
+    setConnectingGa4(true);
+    try {
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "hagggvnmwsnshkofhmmq";
+      const startUrl = `https://${projectId}.supabase.co/functions/v1/oauth-start-ga4?workspace_id=${encodeURIComponent(currentWorkspace.id)}`;
+      const link = document.createElement("a");
+      link.href = startUrl; link.target = "_blank"; link.rel = "noopener noreferrer";
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth GA4", variant: "destructive" });
+    } finally { setTimeout(() => setConnectingGa4(false), 3000); }
+  };
+
+  const handleSyncGa4 = async () => {
+    if (!currentWorkspace || !session) return;
+    setSyncingGa4(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-ga4-daily", {
+        body: { workspace_id: currentWorkspace.id, days_back: 3 },
+      });
+      if (error) throw error;
+      toast({ title: "GA4 Sync completado", description: `${data?.upserted ?? 0} registros.` });
+      refreshData();
+    } catch (err) {
+      toast({ title: "Error al sincronizar GA4", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSyncingGa4(false); }
+  };
+
+  const handleBackfillGa4 = async () => {
+    if (!currentWorkspace || !session) return;
+    const days = Math.min(Math.max(1, ga4BackfillDays), 90);
+    setGa4Backfilling(true); setGa4BackfillStatus("started");
+    try {
+      // Run both: daily + by-source
+      const [dailyRes, sourceRes] = await Promise.all([
+        supabase.functions.invoke("sync-ga4-daily", {
+          body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
+        }),
+        supabase.functions.invoke("sync-ga4-by-source", {
+          body: { workspace_id: currentWorkspace.id, days_back: days, triggered_by: "manual" },
+        }),
+      ]);
+      if (dailyRes.error) throw dailyRes.error;
+      const totalUpserted = (dailyRes.data?.upserted ?? 0) + (sourceRes.data?.upserted ?? 0);
+      setGa4BackfillStatus(`success: ${totalUpserted} rows`);
+      toast({ title: "GA4 Backfill completado", description: `${totalUpserted} registros (${days} días).` });
+      refreshData();
+    } catch (err) {
+      setGa4BackfillStatus(`fail: ${err instanceof Error ? err.message : "error"}`);
+      toast({ title: "Error en backfill GA4", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setGa4Backfilling(false); }
+  };
+
+  const handleToggleGa4Property = async (setting: AccountSetting) => {
+    if (!currentWorkspace) return;
+    setSavingSettings(true);
+    try {
+      const { error } = await supabase
+        .from("workspace_account_settings")
+        .update({ is_enabled: !setting.is_enabled })
+        .eq("id", setting.id);
+      if (error) throw error;
+      setAccountSettings(prev => prev.map(s => s.id === setting.id ? { ...s, is_enabled: !s.is_enabled } : s));
+      toast({ title: `Property ${!setting.is_enabled ? "habilitada" : "deshabilitada"} para sync` });
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
     } finally { setSavingSettings(false); }
@@ -439,6 +531,13 @@ export default function Connections() {
   const googleStatusKey = googleIntegration?.status ?? "disconnected";
   const googleStatusInfo = STATUS_CONFIG[googleStatusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
   const GoogleStatusIcon = googleStatusInfo.icon;
+
+  const ga4StatusKey = ga4Integration?.status ?? "disconnected";
+  const ga4StatusInfo = STATUS_CONFIG[ga4StatusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
+  const Ga4StatusIcon = ga4StatusInfo.icon;
+
+  // GA4 settings from workspace_account_settings
+  const ga4Settings = accountSettings.filter(s => s.provider === "ga4");
 
   // Meta settings from workspace_account_settings
   const metaSettings = accountSettings.filter(s => s.provider === "meta");
@@ -903,13 +1002,118 @@ export default function Connections() {
         </CardContent>
       </Card>
 
-      {/* GA4 Card */}
-      <Card className="opacity-75">
+      {/* ═══════════ GA4 Card ═══════════ */}
+      <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
-          <div className="space-y-1"><CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Analytics 4</CardTitle><CardDescription>Sessions, Transactions & Revenue</CardDescription></div>
-          <Badge variant="outline" className="text-xs">Coming next</Badge>
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg"><Plug className="h-5 w-5" />Google Analytics 4</CardTitle>
+            <CardDescription>Revenue, Purchases & Source/Medium breakdown · Scope: analytics.readonly</CardDescription>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge className={ga4StatusInfo.className}><Ga4StatusIcon className="h-3 w-3 mr-1" />{ga4StatusInfo.label}</Badge>
+            {isAdmin && ga4Integration?.status === "connected" && (
+              <Button size="sm" variant="outline" onClick={handleSyncGa4} disabled={syncingGa4 || loading}>
+                {syncingGa4 ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                {syncingGa4 ? "Sincronizando…" : "Sync Now"}
+              </Button>
+            )}
+            {isAdmin && (
+              <Button size="sm" onClick={handleConnectGa4} disabled={connectingGa4 || loading}>
+                {connectingGa4 && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                {ga4Integration ? "Reconectar" : "Conectar GA4"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
-        <CardContent><p className="text-sm text-muted-foreground">Requiere: OAuth Client ID/Secret. Scopes: <code className="text-xs font-mono">analytics.readonly</code>.</p></CardContent>
+
+        <CardContent>
+          {!currentWorkspace ? (
+            <p className="text-sm text-muted-foreground">Seleccioná un workspace.</p>
+          ) : loading ? (
+            <p className="text-sm text-muted-foreground">Cargando…</p>
+          ) : ga4Integration ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="text-muted-foreground">Scopes:</span> <span className="font-mono text-xs">{ga4Integration.scopes?.join(", ") || "—"}</span></div>
+                <div><span className="text-muted-foreground">Token expira:</span> <span>{ga4Integration.token_expires_at ? new Date(ga4Integration.token_expires_at).toLocaleDateString() : "—"}</span></div>
+              </div>
+
+              {/* GA4 Property Selection */}
+              {ga4Settings.length > 0 && isAdmin && (
+                <div className="rounded-md border p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">GA4 Properties</span>
+                    <Badge variant="outline" className="text-xs">{ga4Settings.filter(s => s.is_enabled).length}/{ga4Settings.length} habilitados</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Seleccioná qué property se usa para revenue. Típicamente 1 por workspace.</p>
+
+                  <div className="space-y-1">
+                    {ga4Settings.map((setting) => (
+                      <div key={setting.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/50 last:border-0">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={setting.is_enabled}
+                            onCheckedChange={() => handleToggleGa4Property(setting)}
+                            disabled={savingSettings}
+                          />
+                          <span className={setting.is_enabled ? "text-foreground" : "text-muted-foreground line-through"}>
+                            {setting.account_name || setting.external_id}
+                          </span>
+                          <span className="text-muted-foreground font-mono">({setting.external_id})</span>
+                          {setting.external_group_name && (
+                            <span className="text-muted-foreground">· {setting.external_group_name}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {ga4Settings.filter(s => s.is_enabled).length === 0 && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />Ninguna property habilitada. El sync no procesará datos.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {ga4Settings.length === 0 && ga4Accounts.length > 0 && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <h3 className="text-sm font-medium">Properties ({ga4Accounts.length})</h3>
+                  {ga4Accounts.map(a => (
+                    <div key={a.id} className="text-xs flex items-center gap-2 py-1">
+                      <span>{a.name}</span>
+                      <span className="text-muted-foreground font-mono">({a.external_account_id})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Backfill GA4 */}
+              {isAdmin && ga4Integration.status === "connected" && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Backfill GA4 (Daily + Source/Medium)</span>
+                    <Tooltip><TooltipTrigger asChild><span className="text-muted-foreground text-xs cursor-help">(?)</span></TooltipTrigger><TooltipContent className="max-w-xs text-xs">Ejecuta sync-ga4-daily + sync-ga4-by-source. Máx 90 días.</TooltipContent></Tooltip>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" min={1} max={90} value={ga4BackfillDays} onChange={(e) => setGa4BackfillDays(Number(e.target.value))} className="w-24 h-8 text-sm" />
+                    <span className="text-xs text-muted-foreground">días</span>
+                    <Button size="sm" variant="outline" onClick={handleBackfillGa4} disabled={ga4Backfilling}>
+                      {ga4Backfilling ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}Run Backfill
+                    </Button>
+                  </div>
+                  {ga4BackfillStatus && <p className={`text-xs ${ga4BackfillStatus.startsWith("fail") ? "text-destructive" : "text-muted-foreground"}`}>Status: {ga4BackfillStatus}</p>}
+                </div>
+              )}
+
+              {ga4Accounts.length === 0 && ga4Settings.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron properties. Reconectá GA4 para descubrir.</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{isAdmin ? "Conectá tu cuenta de Google Analytics para sincronizar revenue." : "Pedile a un admin que conecte GA4."}</p>
+          )}
+        </CardContent>
       </Card>
     </div>
   );
