@@ -140,6 +140,16 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // ── Fetch enabled accounts from workspace_account_settings ──
+        const { data: enabledSettings } = await supabase
+          .from("workspace_account_settings")
+          .select("external_id")
+          .eq("workspace_id", wsId)
+          .eq("provider", "meta")
+          .eq("is_enabled", true);
+
+        const enabledExternalIds = new Set((enabledSettings ?? []).map((s: { external_id: string }) => s.external_id));
+
         // ── Fetch all active accounts ──
         const { data: allAccounts } = await supabase
           .from("accounts").select("id, external_account_id, metadata")
@@ -147,39 +157,23 @@ Deno.serve(async (req) => {
 
         if (!allAccounts?.length) continue;
 
-        // ── Filter by allowlist (meta_allowed_businesses / meta_allowed_accounts) ──
-        const { data: allowedBiz } = await supabase
-          .from("meta_allowed_businesses").select("business_id, enabled")
-          .eq("workspace_id", wsId);
-        const { data: allowedAccts } = await supabase
-          .from("meta_allowed_accounts").select("account_id, enabled")
-          .eq("workspace_id", wsId);
-
-        const bizMap = new Map((allowedBiz ?? []).map((b: { business_id: string; enabled: boolean }) => [b.business_id, b.enabled]));
-        const acctMap = new Map((allowedAccts ?? []).map((a: { account_id: string; enabled: boolean }) => [a.account_id, a.enabled]));
-        const hasAnyAllowlistConfig = bizMap.size > 0 || acctMap.size > 0;
-
-        const accounts = hasAnyAllowlistConfig
-          ? allAccounts.filter((acct: { id: string; metadata: Record<string, unknown> | null }) => {
-              // Per-account override takes priority
-              if (acctMap.has(acct.id)) return acctMap.get(acct.id);
-              // Then check business-level
-              const meta = acct.metadata as Record<string, unknown> | null;
-              const bizId = meta?.business_id as string | undefined;
-              if (bizId && bizMap.has(bizId)) return bizMap.get(bizId);
-              // If allowlist exists but this account isn't in it, exclude
-              return false;
-            })
-          : allAccounts; // No allowlist config = sync all (backwards compatible)
+        // Filter to only enabled accounts
+        const accounts = enabledExternalIds.size > 0
+          ? allAccounts.filter((acct: { external_account_id: string }) => enabledExternalIds.has(acct.external_account_id))
+          : []; // No enabled accounts = don't sync anything
 
         const excludedCount = allAccounts.length - accounts.length;
 
         if (!accounts.length) {
-          errors.push(`Workspace ${wsId}: no enabled accounts (${allAccounts.length} total, ${excludedCount} excluded by allowlist)`);
+          errors.push(`Workspace ${wsId}: no enabled accounts (${allAccounts.length} total, ${excludedCount} excluded)`);
           await supabase.from("sync_runs").insert({
             workspace_id: wsId, provider: PROVIDER, integration_id: integration.id,
             job_name: JOB_NAME, status: "error", items_upserted: 0,
-            details: { skipped: true, reason: "no_enabled_businesses", total_accounts: allAccounts.length, excluded: excludedCount },
+            details: {
+              skipped: true, reason: "no_enabled_accounts",
+              total_accounts: allAccounts.length, excluded: excludedCount,
+              enabled_accounts_count: 0,
+            },
             ended_at: new Date().toISOString(), triggered_by: triggeredBy,
           });
           continue;
@@ -402,6 +396,9 @@ Deno.serve(async (req) => {
           items_upserted: totalUpserted,
           details: {
             days_back: daysBack, pages_fetched: totalPages, hit_limit: hitLimit,
+            enabled_accounts_count: accounts.length,
+            enabled_accounts_sample: accounts.slice(0, 5).map((a: { id: string; external_account_id: string }) => ({ id: a.id, ext: a.external_account_id })),
+            skipped_accounts_count: excludedCount,
             synced_accounts: accounts.map((a: { id: string }) => a.id),
             excluded_accounts: excludedCount,
             failed_accounts: failedAccounts.length > 0 ? failedAccounts : undefined,

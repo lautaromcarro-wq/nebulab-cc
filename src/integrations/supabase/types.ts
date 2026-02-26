@@ -1511,6 +1511,53 @@ export type Database = {
         }
         Relationships: []
       }
+      workspace_account_settings: {
+        Row: {
+          account_name: string
+          created_at: string
+          external_group_id: string | null
+          external_group_name: string | null
+          external_id: string
+          id: string
+          is_enabled: boolean
+          provider: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          account_name?: string
+          created_at?: string
+          external_group_id?: string | null
+          external_group_name?: string | null
+          external_id: string
+          id?: string
+          is_enabled?: boolean
+          provider: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          account_name?: string
+          created_at?: string
+          external_group_id?: string | null
+          external_group_name?: string | null
+          external_id?: string
+          id?: string
+          is_enabled?: boolean
+          provider?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_account_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_members: {
         Row: {
           created_at: string

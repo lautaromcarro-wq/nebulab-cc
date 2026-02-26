@@ -64,11 +64,11 @@ serve(async (req) => {
     // 4. Save credential
     await saveCredential(supabase, workspace_id, integrationId, longLivedToken, expiresAt);
 
-    // 5. Discover ad accounts with business info + populate allowlist
+    // 5. Discover ad accounts with business info + populate workspace_account_settings
     await discoverAdAccounts(supabase, longLivedToken, workspace_id, integrationId);
 
-    // 6. Auto-populate meta_allowed_businesses for newly discovered BMs
-    await autoPopulateAllowlist(supabase, workspace_id);
+    // 6. Create workspace_account_settings entries for discovered accounts
+    await populateAccountSettings(supabase, workspace_id);
 
     // 7. Log sync run
     await logSyncRun(supabase, workspace_id, 'success');
@@ -173,50 +173,46 @@ async function discoverAdAccounts(supabase: any, accessToken: string, workspaceI
     console.error('Ad account discovery error:', err instanceof Error ? err.message : err);
 }
 
-async function autoPopulateAllowlist(supabase: any, workspaceId: string) {
+async function populateAccountSettings(supabase: any, workspaceId: string) {
   try {
-    // Get all discovered accounts with business_id
     const { data: accounts } = await supabase
-      .from('accounts').select('id, name, metadata')
+      .from('accounts').select('id, name, external_account_id, metadata')
       .eq('workspace_id', workspaceId).eq('provider', 'meta');
 
     if (!accounts?.length) return;
 
-    // Collect unique businesses
-    const businesses = new Map<string, string>();
     for (const acct of accounts) {
       const meta = acct.metadata as Record<string, any> | null;
-      const bizId = meta?.business_id;
-      const bizName = meta?.business_name || '';
-      if (bizId && !businesses.has(bizId)) {
-        businesses.set(bizId, bizName);
-      }
-    }
+      const bizId = meta?.business_id || null;
+      const bizName = meta?.business_name || null;
 
-    // Upsert each business (default enabled=false for safe discovery)
-    for (const [bizId, bizName] of businesses) {
       const { data: existing } = await supabase
-        .from('meta_allowed_businesses').select('id')
-        .eq('workspace_id', workspaceId).eq('business_id', bizId).maybeSingle();
+        .from('workspace_account_settings').select('id')
+        .eq('workspace_id', workspaceId)
+        .eq('provider', 'meta')
+        .eq('external_id', acct.external_account_id)
+        .maybeSingle();
 
       if (!existing) {
-        await supabase.from('meta_allowed_businesses').insert({
-          workspace_id: workspaceId, business_id: bizId, business_name: bizName, enabled: false,
+        await supabase.from('workspace_account_settings').insert({
+          workspace_id: workspaceId,
+          provider: 'meta',
+          external_id: acct.external_account_id,
+          external_group_id: bizId,
+          external_group_name: bizName,
+          account_name: acct.name || '',
+          is_enabled: false,
         });
       } else {
-        // Update name if changed
-        await supabase.from('meta_allowed_businesses').update({ business_name: bizName }).eq('id', existing.id);
+        await supabase.from('workspace_account_settings').update({
+          external_group_id: bizId,
+          external_group_name: bizName,
+          account_name: acct.name || '',
+        }).eq('id', existing.id);
       }
     }
-
-    // Also create meta_sync_prefs if not exists
-    const { data: prefs } = await supabase
-      .from('meta_sync_prefs').select('id').eq('workspace_id', workspaceId).maybeSingle();
-    if (!prefs) {
-      await supabase.from('meta_sync_prefs').insert({ workspace_id: workspaceId, mode: 'allowlist' });
-    }
   } catch (err) {
-    console.error('Auto-populate allowlist error:', err instanceof Error ? err.message : err);
+    console.error('Populate account settings error:', err instanceof Error ? err.message : err);
   }
 }
 }

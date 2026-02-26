@@ -16,8 +16,16 @@ import type { Tables, Json } from "@/integrations/supabase/types";
 type Integration = Tables<"integrations">;
 type Account = Tables<"accounts">;
 
-type AllowedBusiness = { id: string; workspace_id: string; business_id: string; business_name: string; enabled: boolean };
-type AllowedAccount = { id: string; workspace_id: string; account_id: string; account_name: string; enabled: boolean };
+type AccountSetting = {
+  id: string;
+  workspace_id: string;
+  provider: string;
+  external_id: string;
+  external_group_id: string | null;
+  external_group_name: string | null;
+  account_name: string;
+  is_enabled: boolean;
+};
 
 const STATUS_CONFIG = {
   connected: { label: "Connected", icon: CheckCircle2, variant: "default" as const, className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
@@ -111,28 +119,25 @@ export default function Connections() {
   const [diagRunning, setDiagRunning] = useState(false);
   const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null);
 
-  // BM/Account allowlist state
-  const [allowedBusinesses, setAllowedBusinesses] = useState<AllowedBusiness[]>([]);
-  const [allowedAccounts, setAllowedAccounts] = useState<AllowedAccount[]>([]);
-  const [savingAllowlist, setSavingAllowlist] = useState(false);
+  // Unified account settings
+  const [accountSettings, setAccountSettings] = useState<AccountSetting[]>([]);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
     setLoading(true);
-    const [intMetaRes, intGoogleRes, accMetaRes, accGoogleRes, bizRes, acctRes] = await Promise.all([
+    const [intMetaRes, intGoogleRes, accMetaRes, accGoogleRes, settingsRes] = await Promise.all([
       supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").maybeSingle(),
       supabase.from("integrations").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "google_ads").maybeSingle(),
       supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "meta").order("name"),
       supabase.from("accounts").select("*").eq("workspace_id", currentWorkspace.id).eq("provider", "google_ads").order("name"),
-      supabase.from("meta_allowed_businesses").select("*").eq("workspace_id", currentWorkspace.id).order("business_name"),
-      supabase.from("meta_allowed_accounts").select("*").eq("workspace_id", currentWorkspace.id),
+      supabase.from("workspace_account_settings").select("*").eq("workspace_id", currentWorkspace.id),
     ]);
     setMetaIntegration(intMetaRes.data);
     setGoogleIntegration(intGoogleRes.data);
     setMetaAccounts(accMetaRes.data ?? []);
     setGoogleAccounts(accGoogleRes.data ?? []);
-    setAllowedBusinesses((bizRes.data as AllowedBusiness[] | null) ?? []);
-    setAllowedAccounts((acctRes.data as AllowedAccount[] | null) ?? []);
+    setAccountSettings((settingsRes.data as AccountSetting[] | null) ?? []);
     setLoading(false);
   }, [currentWorkspace]);
 
@@ -223,9 +228,6 @@ export default function Connections() {
     try {
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "hagggvnmwsnshkofhmmq";
       const startUrl = `https://${projectId}.supabase.co/functions/v1/oauth-start-google-ads?workspace_id=${encodeURIComponent(currentWorkspace.id)}`;
-      
-      // Use a temporary <a> element with target="_blank" — browsers allow this
-      // from user-initiated clicks better than window.open with features string
       const link = document.createElement("a");
       link.href = startUrl;
       link.target = "_blank";
@@ -282,7 +284,7 @@ export default function Connections() {
 
   const handleToggleGoogleAccountEnabled = async (acct: Account) => {
     if (!currentWorkspace) return;
-    setSavingAllowlist(true);
+    setSavingSettings(true);
     try {
       const meta = (acct.metadata as Record<string, Json | undefined>) || {};
       const currentlyEnabled = getMetaBool(acct.metadata, "enabled") !== false;
@@ -293,7 +295,44 @@ export default function Connections() {
       toast({ title: `Cuenta ${!currentlyEnabled ? "habilitada" : "deshabilitada"} para sync` });
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally { setSavingAllowlist(false); }
+    } finally { setSavingSettings(false); }
+  };
+
+  // ── Meta account settings toggle ──
+  const handleToggleMetaAccount = async (setting: AccountSetting) => {
+    if (!currentWorkspace) return;
+    setSavingSettings(true);
+    try {
+      const { error } = await supabase
+        .from("workspace_account_settings")
+        .update({ is_enabled: !setting.is_enabled })
+        .eq("id", setting.id);
+      if (error) throw error;
+      setAccountSettings(prev => prev.map(s => s.id === setting.id ? { ...s, is_enabled: !s.is_enabled } : s));
+      toast({ title: `Cuenta ${!setting.is_enabled ? "habilitada" : "deshabilitada"} para sync` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingSettings(false); }
+  };
+
+  const handleBulkToggleMetaBusiness = async (groupId: string, enable: boolean) => {
+    if (!currentWorkspace) return;
+    setSavingSettings(true);
+    try {
+      const toUpdate = metaSettings.filter(s => (s.external_group_id || "__none__") === groupId);
+      for (const s of toUpdate) {
+        await supabase.from("workspace_account_settings").update({ is_enabled: enable }).eq("id", s.id);
+      }
+      setAccountSettings(prev => prev.map(s => {
+        if (s.provider === "meta" && (s.external_group_id || "__none__") === groupId) {
+          return { ...s, is_enabled: enable };
+        }
+        return s;
+      }));
+      toast({ title: `${toUpdate.length} cuentas ${enable ? "habilitadas" : "deshabilitadas"}` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setSavingSettings(false); }
   };
 
   const handleOpenNewTab = () => {
@@ -363,56 +402,6 @@ export default function Connections() {
     } finally { setDiagRunning(false); }
   };
 
-  // ── BM/Account allowlist handlers ──
-  const handleToggleBusiness = async (biz: AllowedBusiness) => {
-    if (!currentWorkspace) return;
-    setSavingAllowlist(true);
-    try {
-      const { error } = await supabase.from("meta_allowed_businesses")
-        .update({ enabled: !biz.enabled }).eq("id", biz.id);
-      if (error) throw error;
-      setAllowedBusinesses(prev => prev.map(b => b.id === biz.id ? { ...b, enabled: !b.enabled } : b));
-      toast({ title: `BM "${biz.business_name}" ${!biz.enabled ? "habilitado" : "deshabilitado"}` });
-    } catch (err) {
-      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally { setSavingAllowlist(false); }
-  };
-
-  const handleToggleAccountOverride = async (acct: Account) => {
-    if (!currentWorkspace) return;
-    setSavingAllowlist(true);
-    const existing = allowedAccounts.find(a => a.account_id === acct.id);
-    try {
-      if (existing) {
-        const { error } = await supabase.from("meta_allowed_accounts")
-          .update({ enabled: !existing.enabled }).eq("id", existing.id);
-        if (error) throw error;
-        setAllowedAccounts(prev => prev.map(a => a.id === existing.id ? { ...a, enabled: !a.enabled } : a));
-      } else {
-        const { data, error } = await supabase.from("meta_allowed_accounts")
-          .insert({ workspace_id: currentWorkspace.id, account_id: acct.id, account_name: acct.name, enabled: true })
-          .select().single();
-        if (error) throw error;
-        if (data) setAllowedAccounts(prev => [...prev, data as AllowedAccount]);
-      }
-      toast({ title: "Override actualizado" });
-    } catch (err) {
-      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally { setSavingAllowlist(false); }
-  };
-
-  const handleRemoveAccountOverride = async (overrideId: string) => {
-    setSavingAllowlist(true);
-    try {
-      const { error } = await supabase.from("meta_allowed_accounts").delete().eq("id", overrideId);
-      if (error) throw error;
-      setAllowedAccounts(prev => prev.filter(a => a.id !== overrideId));
-      toast({ title: "Override eliminado" });
-    } catch (err) {
-      toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
-    } finally { setSavingAllowlist(false); }
-  };
-
   const isAdmin = workspaceRole === "admin";
   const metaStatusKey = metaIntegration?.status ?? "disconnected";
   const metaStatusInfo = STATUS_CONFIG[metaStatusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
@@ -422,25 +411,19 @@ export default function Connections() {
   const googleStatusInfo = STATUS_CONFIG[googleStatusKey as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.disconnected;
   const GoogleStatusIcon = googleStatusInfo.icon;
 
-  // Group Meta accounts by business
-  const accountsByBusiness = metaAccounts.reduce<Record<string, { bizName: string; bizId: string; accounts: Account[] }>>((acc, acct) => {
-    const bizId = getMetaString(acct.metadata, "business_id") || "__none__";
-    const bizName = getMetaString(acct.metadata, "business_name") || "Sin Business Manager";
-    if (!acc[bizId]) acc[bizId] = { bizName, bizId, accounts: [] };
-    acc[bizId].accounts.push(acct);
+  // Meta settings from workspace_account_settings
+  const metaSettings = accountSettings.filter(s => s.provider === "meta");
+
+  // Group Meta settings by business
+  const metaSettingsByBusiness = metaSettings.reduce<Record<string, { bizName: string; bizId: string; settings: AccountSetting[] }>>((acc, s) => {
+    const bizId = s.external_group_id || "__none__";
+    const bizName = s.external_group_name || "Sin Business Manager";
+    if (!acc[bizId]) acc[bizId] = { bizName, bizId, settings: [] };
+    acc[bizId].settings.push(s);
     return acc;
   }, {});
 
-  const getAccountSyncEnabled = (acct: Account): { enabled: boolean; source: "biz" | "override" | "default" } => {
-    const override = allowedAccounts.find(a => a.account_id === acct.id);
-    if (override) return { enabled: override.enabled, source: "override" };
-    const bizId = getMetaString(acct.metadata, "business_id");
-    if (bizId) {
-      const biz = allowedBusinesses.find(b => b.business_id === bizId);
-      if (biz) return { enabled: biz.enabled, source: "biz" };
-    }
-    return { enabled: allowedBusinesses.length === 0, source: "default" };
-  };
+  const metaEnabledCount = metaSettings.filter(s => s.is_enabled).length;
 
   const getSyncBadge = (status: string, message: string | null, lastError: Record<string, string> | null) => {
     if (status === "ok") return <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">OK</Badge>;
@@ -457,11 +440,11 @@ export default function Connections() {
     );
   };
 
-  const enabledBizCount = allowedBusinesses.filter(b => b.enabled).length;
-  const hasAllowlistConfig = allowedBusinesses.length > 0;
-
   // Google accounts: separate managers vs clients
   const googleClientAccounts = googleAccounts.filter(a => getMetaBool(a.metadata, "manager") !== true);
+
+  // Find the matching account for a setting (to get sync status)
+  const findMetaAccount = (externalId: string) => metaAccounts.find(a => a.external_account_id === externalId);
 
   return (
     <div className="space-y-6">
@@ -552,109 +535,104 @@ export default function Connections() {
                 <div><span className="text-muted-foreground">Token expira:</span> <span>{metaIntegration.token_expires_at ? new Date(metaIntegration.token_expires_at).toLocaleDateString() : "—"}</span></div>
               </div>
 
-              {/* BM Selection */}
-              {isAdmin && allowedBusinesses.length > 0 && (
+              {/* Meta Account Toggles (grouped by BM) */}
+              {metaSettings.length > 0 && isAdmin && (
                 <div className="rounded-md border p-3 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Business Managers</span>
-                      <Badge variant="outline" className="text-xs">{enabledBizCount}/{allowedBusinesses.length} habilitados</Badge>
+                      <span className="text-sm font-medium">Ad Accounts</span>
+                      <Badge variant="outline" className="text-xs">{metaEnabledCount}/{metaSettings.length} habilitados</Badge>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">Seleccioná qué BMs se sincronizan.</p>
-                  {!hasAllowlistConfig && (
-                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-amber-700">
-                      <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />Sin configuración: todas las cuentas se sincronizan por defecto.
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    {allowedBusinesses.map((biz) => {
-                      const bizAccounts = accountsByBusiness[biz.business_id]?.accounts || [];
-                      return (
-                        <div key={biz.id} className="rounded-md border p-2.5 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Switch checked={biz.enabled} onCheckedChange={() => handleToggleBusiness(biz)} disabled={savingAllowlist} />
-                              <span className="text-sm font-medium">{biz.business_name || biz.business_id}</span>
-                              <span className="text-xs text-muted-foreground font-mono">({biz.business_id})</span>
-                            </div>
-                            <Badge variant="outline" className="text-xs">{bizAccounts.length} cuentas</Badge>
+                  <p className="text-xs text-muted-foreground">Seleccioná qué cuentas se sincronizan. Las cuentas nuevas se descubren deshabilitadas por defecto.</p>
+
+                  {Object.entries(metaSettingsByBusiness).map(([bizId, group]) => {
+                    const groupEnabled = group.settings.filter(s => s.is_enabled).length;
+                    const allEnabled = groupEnabled === group.settings.length;
+                    const noneEnabled = groupEnabled === 0;
+                    return (
+                      <div key={bizId} className="rounded-md border p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-sm font-medium">{group.bizName}</span>
+                            {bizId !== "__none__" && <span className="text-xs text-muted-foreground font-mono">({bizId})</span>}
+                            <Badge variant="outline" className="text-xs">{groupEnabled}/{group.settings.length}</Badge>
                           </div>
-                          {bizAccounts.length > 0 && (
-                            <div className="ml-8 space-y-1">
-                              {bizAccounts.map((acct) => {
-                                const syncInfo = getAccountSyncEnabled(acct);
-                                const override = allowedAccounts.find(a => a.account_id === acct.id);
-                                const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
-                                return (
-                                  <div key={acct.id} className="flex items-center justify-between text-xs py-1 border-b border-border/50 last:border-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className={syncInfo.enabled ? "text-foreground" : "text-muted-foreground line-through"}>{acct.name}</span>
-                                      <span className="text-muted-foreground font-mono">({acct.external_account_id})</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      {getSyncBadge(syncSt, syncMsg, lastError)}
-                                      {override ? (
-                                        <div className="flex items-center gap-1">
-                                          <Badge variant="secondary" className="text-[10px]">{override.enabled ? "Override: ON" : "Override: OFF"}</Badge>
-                                          <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive" onClick={() => handleRemoveAccountOverride(override.id)} disabled={savingAllowlist}>
-                                            <XCircle className="h-3 w-3" />
-                                          </Button>
-                                        </div>
-                                      ) : (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <Button size="sm" variant="ghost" className="h-5 text-[10px] px-1.5 text-muted-foreground" onClick={() => handleToggleAccountOverride(acct)} disabled={savingAllowlist}>
-                                              Override
-                                            </Button>
-                                          </TooltipTrigger>
-                                          <TooltipContent className="text-xs">Crear override per-account</TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm" variant="ghost" className="h-6 text-xs px-2"
+                              onClick={() => handleBulkToggleMetaBusiness(bizId, true)}
+                              disabled={savingSettings || allEnabled}
+                            >Enable all</Button>
+                            <Button
+                              size="sm" variant="ghost" className="h-6 text-xs px-2"
+                              onClick={() => handleBulkToggleMetaBusiness(bizId, false)}
+                              disabled={savingSettings || noneEnabled}
+                            >Disable all</Button>
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                  {accountsByBusiness["__none__"] && (
-                    <div className="rounded-md border border-dashed p-2.5 space-y-2">
-                      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                        <AlertTriangle className="h-3.5 w-3.5" /> Sin Business Manager
-                      </div>
-                      <div className="ml-6 space-y-1">
-                        {accountsByBusiness["__none__"].accounts.map((acct) => {
-                          const override = allowedAccounts.find(a => a.account_id === acct.id);
-                          const syncInfo = getAccountSyncEnabled(acct);
-                          return (
-                            <div key={acct.id} className="flex items-center justify-between text-xs py-1 border-b border-border/50 last:border-0">
-                              <span className={syncInfo.enabled ? "text-foreground" : "text-muted-foreground line-through"}>{acct.name} <span className="font-mono text-muted-foreground">({acct.external_account_id})</span></span>
-                              <div className="flex items-center gap-1">
-                                {override ? (
-                                  <>
-                                    <Badge variant="secondary" className="text-[10px]">{override.enabled ? "ON" : "OFF"}</Badge>
-                                    <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => handleRemoveAccountOverride(override.id)} disabled={savingAllowlist}><XCircle className="h-3 w-3" /></Button>
-                                  </>
-                                ) : (
-                                  <Button size="sm" variant="ghost" className="h-5 text-[10px] px-1.5" onClick={() => handleToggleAccountOverride(acct)} disabled={savingAllowlist}>Override</Button>
-                                )}
+                        <div className="space-y-1">
+                          {group.settings.map((setting) => {
+                            const acct = findMetaAccount(setting.external_id);
+                            const { status: syncSt, message: syncMsg, lastError } = acct ? getAccountSyncStatus(acct.metadata) : { status: "unknown", message: null, lastError: null };
+                            return (
+                              <div key={setting.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/50 last:border-0">
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={setting.is_enabled}
+                                    onCheckedChange={() => handleToggleMetaAccount(setting)}
+                                    disabled={savingSettings}
+                                  />
+                                  <span className={setting.is_enabled ? "text-foreground" : "text-muted-foreground line-through"}>
+                                    {setting.account_name || setting.external_id}
+                                  </span>
+                                  <span className="text-muted-foreground font-mono">({setting.external_id})</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {acct && <span className="text-muted-foreground">{acct.currency ?? ""}</span>}
+                                  {getSyncBadge(syncSt, syncMsg, lastError)}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {enabledBizCount === 0 && allowedAccounts.filter(a => a.enabled).length === 0 && (
+                    );
+                  })}
+
+                  {metaEnabledCount === 0 && (
                     <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive flex items-center gap-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5" />Ningún BM habilitado.
+                      <AlertTriangle className="h-3.5 w-3.5" />Ninguna cuenta habilitada. El sync no procesará datos.
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Fallback table for non-admin or no settings */}
+              {metaSettings.length === 0 && metaAccounts.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium mb-2">Ad Accounts ({metaAccounts.length})</h3>
+                  <div className="rounded-md border overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b bg-muted/50"><th className="px-3 py-2 text-left font-medium">Nombre</th><th className="px-3 py-2 text-left font-medium">Account ID</th><th className="px-3 py-2 text-left font-medium">Business</th><th className="px-3 py-2 text-left font-medium">Moneda</th><th className="px-3 py-2 text-left font-medium">Estado</th><th className="px-3 py-2 text-left font-medium">Sync</th></tr></thead>
+                      <tbody>{metaAccounts.map((acct) => {
+                        const businessName = getMetaString(acct.metadata, "business_name");
+                        const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
+                        return (
+                          <tr key={acct.id} className="border-b last:border-0">
+                            <td className="px-3 py-2">{acct.name}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
+                            <td className="px-3 py-2 text-xs">{businessName || <span className="text-muted-foreground">—</span>}</td>
+                            <td className="px-3 py-2">{acct.currency ?? "—"}</td>
+                            <td className="px-3 py-2"><Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">{acct.status}</Badge></td>
+                            <td className="px-3 py-2">{getSyncBadge(syncSt, syncMsg, lastError)}</td>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
@@ -704,34 +682,7 @@ export default function Connections() {
                 </div>
               )}
 
-              {/* Ad Accounts table (no-BM fallback) */}
-              {metaAccounts.length > 0 && allowedBusinesses.length === 0 && (
-                <div>
-                  <h3 className="text-sm font-medium mb-2">Ad Accounts ({metaAccounts.length})</h3>
-                  <div className="rounded-md border overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b bg-muted/50"><th className="px-3 py-2 text-left font-medium">Nombre</th><th className="px-3 py-2 text-left font-medium">Account ID</th><th className="px-3 py-2 text-left font-medium">Business</th><th className="px-3 py-2 text-left font-medium">Moneda</th><th className="px-3 py-2 text-left font-medium">Estado</th><th className="px-3 py-2 text-left font-medium">Sync</th></tr></thead>
-                      <tbody>{metaAccounts.map((acct) => {
-                        const businessName = getMetaString(acct.metadata, "business_name");
-                        const businessId = getMetaString(acct.metadata, "business_id");
-                        const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
-                        return (
-                          <tr key={acct.id} className="border-b last:border-0">
-                            <td className="px-3 py-2">{acct.name}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
-                            <td className="px-3 py-2 text-xs">{businessName || <span className="text-muted-foreground">—</span>}</td>
-                            <td className="px-3 py-2">{acct.currency ?? "—"}</td>
-                            <td className="px-3 py-2"><Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">{acct.status}</Badge></td>
-                            <td className="px-3 py-2">{getSyncBadge(syncSt, syncMsg, lastError)}</td>
-                          </tr>
-                        );
-                      })}</tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {metaAccounts.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron cuentas publicitarias.</p>}
+              {metaAccounts.length === 0 && metaSettings.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron cuentas publicitarias.</p>}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{isAdmin ? "Conectá tu cuenta de Meta para descubrir cuentas publicitarias." : "Pedile a un admin que conecte Meta Ads."}</p>
@@ -802,7 +753,7 @@ export default function Connections() {
                                 <Switch
                                   checked={isEnabled}
                                   onCheckedChange={() => handleToggleGoogleAccountEnabled(acct)}
-                                  disabled={savingAllowlist}
+                                  disabled={savingSettings}
                                 />
                               ) : (
                                 <Badge variant={isEnabled ? "default" : "secondary"} className="text-xs">{isEnabled ? "ON" : "OFF"}</Badge>
