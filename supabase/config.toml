@@ -29,3 +29,9 @@ verify_jwt = false
 
 [functions.debug-ga4-discovery]
 verify_jwt = false
+
+[functions.aggregate-revenue]
+verify_jwt = false
+
+[functions.debug-workspace-health]
+verify_jwt = false

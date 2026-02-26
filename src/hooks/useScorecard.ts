@@ -10,7 +10,6 @@ export interface SegmentScorecard {
   monthlyBudget: number;
   tolerancePercent: number;
   rollingAvgDays: number;
-  // Aggregated metrics
   totalSpend: number;
   spendMeta: number;
   spendGoogle: number;
@@ -19,11 +18,9 @@ export interface SegmentScorecard {
   impressions: number;
   clicks: number;
   purchases: number;
-  // Computed
   roas: number;
   ctr: number;
   cpc: number;
-  // Pacing
   pacingStatus: "overpacing" | "on_track" | "underpacing";
   projectedEom: number;
   budgetUsedPercent: number;
@@ -38,6 +35,14 @@ export interface ScorecardTotals {
   totalPurchases: number;
   roas: number;
   ctr: number;
+  // New: per-platform ROAS
+  roasMeta: number;
+  roasGoogle: number;
+  roasGa4: number;
+  blendedRoas: number;
+  revenueGa4: number;
+  spendMeta: number;
+  spendGoogle: number;
 }
 
 export function useScorecard() {
@@ -56,7 +61,8 @@ export function useScorecard() {
     queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals }> => {
       if (!currentWorkspace) return { cards: [], totals: emptyTotals() };
 
-      let query = supabase
+      // Fetch segment_daily and workspace_revenue_daily in parallel
+      let segQuery = supabase
         .from("segment_daily")
         .select("*")
         .eq("workspace_id", currentWorkspace.id)
@@ -64,15 +70,29 @@ export function useScorecard() {
         .lte("date", toStr);
 
       if (selectedSegmentId) {
-        query = query.eq("segment_id", selectedSegmentId);
+        segQuery = segQuery.eq("segment_id", selectedSegmentId);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const [segResult, revResult] = await Promise.all([
+        segQuery,
+        supabase
+          .from("workspace_revenue_daily")
+          .select("*")
+          .eq("workspace_id", currentWorkspace.id)
+          .gte("date", fromStr)
+          .lte("date", toStr),
+      ]);
 
-      const rows = data ?? [];
+      if (segResult.error) throw segResult.error;
 
-      // Group by segment_id
+      const rows = segResult.data ?? [];
+      const revenueRows = revResult.data ?? [];
+
+      // Workspace-level revenue from workspace_revenue_daily
+      const wsRevenueGa4 = revenueRows.reduce((s, r) => s + (Number(r.total_revenue) || 0), 0);
+      const wsPurchases = revenueRows.reduce((s, r) => s + (Number(r.total_purchases) || 0), 0);
+
+      // Group segment_daily by segment_id
       const grouped = new Map<string, typeof rows>();
       for (const row of rows) {
         const arr = grouped.get(row.segment_id) ?? [];
@@ -103,7 +123,6 @@ export function useScorecard() {
         const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
         const cpc = clicks > 0 ? totalSpend / clicks : 0;
 
-        // Pacing: rolling avg of last N days spend → project to EOM
         const uniqueDays = new Set(segRows.map((r) => r.date)).size;
         const dailyAvgSpend = uniqueDays > 0 ? totalSpend / uniqueDays : 0;
         const projectedEom = dailyAvgSpend * daysInMonth;
@@ -149,17 +168,31 @@ export function useScorecard() {
       const totalImpressions = cards.reduce((s, c) => s + c.impressions, 0);
       const totalClicks = cards.reduce((s, c) => s + c.clicks, 0);
       const totalPurchases = cards.reduce((s, c) => s + c.purchases, 0);
+      const totalSpendMeta = cards.reduce((s, c) => s + c.spendMeta, 0);
+      const totalSpendGoogle = cards.reduce((s, c) => s + c.spendGoogle, 0);
+      const totalRevPlatform = cards.reduce((s, c) => s + c.revenuePlatform, 0);
+      const totalRevGa4 = cards.reduce((s, c) => s + c.revenueGa4, 0);
+
+      // Use workspace_revenue_daily as fallback if segments have no GA4 revenue
+      const effectiveRevGa4 = totalRevGa4 > 0 ? totalRevGa4 : wsRevenueGa4;
 
       return {
         cards,
         totals: {
           totalSpend,
-          totalRevenue,
+          totalRevenue: totalRevenue > 0 ? totalRevenue : wsRevenueGa4,
           totalImpressions,
           totalClicks,
-          totalPurchases,
-          roas: totalSpend > 0 ? totalRevenue / totalSpend : 0,
+          totalPurchases: totalPurchases > 0 ? totalPurchases : wsPurchases,
+          roas: totalSpend > 0 ? (totalRevenue > 0 ? totalRevenue : wsRevenueGa4) / totalSpend : 0,
           ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
+          roasMeta: totalSpendMeta > 0 ? totalRevPlatform / totalSpendMeta : 0,
+          roasGoogle: totalSpendGoogle > 0 ? totalRevPlatform / totalSpendGoogle : 0,
+          roasGa4: totalSpend > 0 ? effectiveRevGa4 / totalSpend : 0,
+          blendedRoas: totalSpend > 0 ? effectiveRevGa4 / totalSpend : 0,
+          revenueGa4: effectiveRevGa4,
+          spendMeta: totalSpendMeta,
+          spendGoogle: totalSpendGoogle,
         },
       };
     },
@@ -176,5 +209,9 @@ function sumInt(rows: any[], key: string): number {
 }
 
 function emptyTotals(): ScorecardTotals {
-  return { totalSpend: 0, totalRevenue: 0, totalImpressions: 0, totalClicks: 0, totalPurchases: 0, roas: 0, ctr: 0 };
+  return {
+    totalSpend: 0, totalRevenue: 0, totalImpressions: 0, totalClicks: 0, totalPurchases: 0,
+    roas: 0, ctr: 0, roasMeta: 0, roasGoogle: 0, roasGa4: 0, blendedRoas: 0,
+    revenueGa4: 0, spendMeta: 0, spendGoogle: 0,
+  };
 }
