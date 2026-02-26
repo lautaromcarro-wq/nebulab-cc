@@ -135,6 +135,9 @@ export default function Connections() {
   // Google Ads: discovery state
   const [discovering, setDiscovering] = useState(false);
   const [discoveryResult, setDiscoveryResult] = useState<Record<string, unknown> | null>(null);
+  // GA4 discovery state
+  const [discoveringGa4, setDiscoveringGa4] = useState(false);
+  const [ga4DiscoveryResult, setGa4DiscoveryResult] = useState<Record<string, unknown> | null>(null);
 
   const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
@@ -313,13 +316,33 @@ export default function Connections() {
     if (!currentWorkspace) return;
     setSavingSettings(true);
     try {
-      const meta = (acct.metadata as Record<string, Json | undefined>) || {};
-      const currentlyEnabled = getMetaBool(acct.metadata, "enabled") !== false;
-      const newMeta = { ...meta, enabled: !currentlyEnabled };
-      const { error } = await supabase.from("accounts").update({ metadata: newMeta }).eq("id", acct.id);
-      if (error) throw error;
-      setGoogleAccounts(prev => prev.map(a => a.id === acct.id ? { ...a, metadata: newMeta } : a));
-      toast({ title: `Cuenta ${!currentlyEnabled ? "habilitada" : "deshabilitada"} para sync` });
+      const externalId = acct.external_account_id;
+      // Find or create setting in workspace_account_settings
+      const existing = accountSettings.find(s => s.provider === "google_ads" && s.external_id === externalId);
+      if (existing) {
+        const { error } = await supabase
+          .from("workspace_account_settings")
+          .update({ is_enabled: !existing.is_enabled })
+          .eq("id", existing.id);
+        if (error) throw error;
+        setAccountSettings(prev => prev.map(s => s.id === existing.id ? { ...s, is_enabled: !s.is_enabled } : s));
+      } else {
+        // Create new setting
+        const { data: newSetting, error } = await supabase
+          .from("workspace_account_settings")
+          .insert({
+            workspace_id: currentWorkspace.id,
+            provider: "google_ads",
+            external_id: externalId,
+            account_name: acct.name || externalId,
+            is_enabled: true,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        if (newSetting) setAccountSettings(prev => [...prev, newSetting as AccountSetting]);
+      }
+      toast({ title: `Cuenta ${existing ? (!existing.is_enabled ? "habilitada" : "deshabilitada") : "habilitada"} para sync` });
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
     } finally { setSavingSettings(false); }
@@ -341,6 +364,27 @@ export default function Connections() {
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth GA4", variant: "destructive" });
     } finally { setTimeout(() => setConnectingGa4(false), 3000); }
+  };
+
+  const handleRunGa4Discovery = async () => {
+    if (!currentWorkspace) return;
+    setDiscoveringGa4(true);
+    setGa4DiscoveryResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("debug-ga4-discovery", {
+        body: { workspace_id: currentWorkspace.id, persist: true },
+      });
+      if (error) throw error;
+      setGa4DiscoveryResult(data);
+      if (data?.success) {
+        toast({ title: "GA4 Discovery completado", description: `${data.properties_listed ?? 0} properties encontradas.` });
+        refreshData();
+      } else {
+        toast({ title: "GA4 Discovery con errores", description: data?.admin_api_error?.substring(0, 200) || data?.error || "Error desconocido", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error en GA4 Discovery", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setDiscoveringGa4(false); }
   };
 
   const handleSyncGa4 = async () => {
@@ -541,6 +585,9 @@ export default function Connections() {
 
   // GA4 settings from workspace_account_settings
   const ga4Settings = accountSettings.filter(s => s.provider === "ga4");
+
+  // Google Ads settings from workspace_account_settings
+  const googleSettings = accountSettings.filter(s => s.provider === "google_ads");
 
   // Meta settings from workspace_account_settings
   const metaSettings = accountSettings.filter(s => s.provider === "meta");
@@ -934,7 +981,8 @@ export default function Connections() {
                       <tbody>{googleDisplayAccounts.map((acct) => {
                         const isManager = getMetaBool(acct.metadata, "manager") === true;
                         const isHidden = getMetaBool(acct.metadata, "hidden") === true;
-                        const isEnabled = getMetaBool(acct.metadata, "enabled") !== false;
+                        const googleSetting = googleSettings.find(s => s.external_id === acct.external_account_id);
+                        const isEnabled = googleSetting ? googleSetting.is_enabled : false;
                         const parentId = getMetaString(acct.metadata, "parent_customer_id");
                         const googleStatus = getMetaString(acct.metadata, "google_status");
                         const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
@@ -1044,6 +1092,44 @@ export default function Connections() {
                 <div><span className="text-muted-foreground">Token expira:</span> <span>{ga4Integration.token_expires_at ? new Date(ga4Integration.token_expires_at).toLocaleDateString() : "—"}</span></div>
               </div>
 
+              {/* GA4 Discovery */}
+              {isAdmin && ga4Integration.status === "connected" && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Stethoscope className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Property Discovery</span>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={handleRunGa4Discovery} disabled={discoveringGa4}>
+                      {discoveringGa4 ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5 mr-1.5" />}
+                      {discoveringGa4 ? "Descubriendo…" : "Run Discovery"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Descubre GA4 properties accesibles. Requiere que la Admin API esté habilitada en Google Cloud Console.</p>
+
+                  {ga4DiscoveryResult && !ga4DiscoveryResult.success && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive space-y-1">
+                      <p className="font-medium">Error en GA4 Admin API (HTTP {String(ga4DiscoveryResult.admin_api_status)})</p>
+                      <p className="font-mono whitespace-pre-wrap">{String(ga4DiscoveryResult.admin_api_error || ga4DiscoveryResult.error).substring(0, 300)}</p>
+                      {String(ga4DiscoveryResult.admin_api_error || "").includes("analyticsadmin.googleapis.com") && (
+                        <p className="mt-1 text-foreground">→ Habilitá la "Google Analytics Admin API" en la consola de Google Cloud para el proyecto OAuth.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {ga4DiscoveryResult?.success && (
+                    <div className="text-xs space-y-1 font-mono bg-muted/50 rounded p-2">
+                      <p>Accounts: {ga4DiscoveryResult.accounts_listed as number}</p>
+                      <p>Properties: {ga4DiscoveryResult.properties_listed as number}</p>
+                      {ga4DiscoveryResult.first_property_sample && (
+                        <p>Sample: {(ga4DiscoveryResult.first_property_sample as any).displayName} ({(ga4DiscoveryResult.first_property_sample as any).propertyId})</p>
+                      )}
+                      <p>Token scopes: {((ga4DiscoveryResult.token_scopes as string[]) || []).join(", ")}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* GA4 Property Selection */}
               {ga4Settings.length > 0 && isAdmin && (
                 <div className="rounded-md border p-3 space-y-3">
@@ -1083,18 +1169,6 @@ export default function Connections() {
                 </div>
               )}
 
-              {ga4Settings.length === 0 && ga4Accounts.length > 0 && (
-                <div className="rounded-md border p-3 space-y-2">
-                  <h3 className="text-sm font-medium">Properties ({ga4Accounts.length})</h3>
-                  {ga4Accounts.map(a => (
-                    <div key={a.id} className="text-xs flex items-center gap-2 py-1">
-                      <span>{a.name}</span>
-                      <span className="text-muted-foreground font-mono">({a.external_account_id})</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {/* Backfill GA4 */}
               {isAdmin && ga4Integration.status === "connected" && (
                 <div className="rounded-md border p-3 space-y-2">
@@ -1114,7 +1188,7 @@ export default function Connections() {
                 </div>
               )}
 
-              {ga4Accounts.length === 0 && ga4Settings.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron properties. Reconectá GA4 para descubrir.</p>}
+              {ga4Accounts.length === 0 && ga4Settings.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron properties. Ejecutá "Run Discovery" para descubrir.</p>}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{isAdmin ? "Conectá tu cuenta de Google Analytics para sincronizar revenue." : "Pedile a un admin que conecte GA4."}</p>

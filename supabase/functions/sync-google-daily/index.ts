@@ -161,20 +161,36 @@ Deno.serve(async (req) => {
           await supabase.from("integrations").update({ token_expires_at: newExpiry }).eq("id", integration.id);
         }
 
-        // Get enabled accounts (non-manager, enabled in metadata)
+        // Get enabled accounts from workspace_account_settings
+        const { data: enabledSettings } = await supabase
+          .from("workspace_account_settings").select("external_id")
+          .eq("workspace_id", wsId).eq("provider", "google_ads").eq("is_enabled", true);
+
+        if (!enabledSettings?.length) {
+          await supabase.from("sync_runs").insert({
+            workspace_id: wsId, provider: PROVIDER, integration_id: integration.id,
+            job_name: JOB_NAME, status: "success", items_upserted: 0,
+            details: { skipped: true, reason: "no_enabled_accounts" },
+            ended_at: new Date().toISOString(), triggered_by: triggeredBy,
+          });
+          continue;
+        }
+
+        const enabledExternalIds = new Set(enabledSettings.map(s => s.external_id));
+
+        // Get matching account records
         const { data: allAccounts } = await supabase
           .from("accounts").select("id, external_account_id, metadata, status")
           .eq("workspace_id", wsId).eq("provider", "google_ads");
 
         if (!allAccounts?.length) continue;
 
-        // Filter: only active, non-manager, enabled accounts
+        // Filter: only accounts that are enabled in settings and not managers
         const accounts = allAccounts.filter((a: any) => {
           if (a.status !== "active") return false;
           const meta = a.metadata as Record<string, unknown> | null;
           if (meta?.manager === true) return false;
-          if (meta?.enabled === false) return false;
-          return true;
+          return enabledExternalIds.has(a.external_account_id);
         });
 
         if (!accounts.length) {

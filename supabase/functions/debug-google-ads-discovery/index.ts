@@ -77,10 +77,8 @@ Deno.serve(async (req) => {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          refresh_token: cred.refresh_token,
-          grant_type: "refresh_token",
+          client_id: clientId, client_secret: clientSecret,
+          refresh_token: cred.refresh_token, grant_type: "refresh_token",
         }),
       });
       const refreshData = await refreshRes.json();
@@ -90,14 +88,11 @@ Deno.serve(async (req) => {
       accessToken = refreshData.access_token;
       const newExpiry = new Date(Date.now() + (refreshData.expires_in || 3600) * 1000).toISOString();
       await supabase.from("credentials").update({
-        access_token: accessToken,
-        expires_at: newExpiry,
-        updated_at: new Date().toISOString(),
+        access_token: accessToken, expires_at: newExpiry, updated_at: new Date().toISOString(),
       }).eq("integration_id", integration.id);
     }
 
     const debugLog: Record<string, unknown>[] = [];
-
     const log = (msg: string, data?: Record<string, unknown>) => {
       const entry = { ts: new Date().toISOString(), msg, ...data };
       debugLog.push(entry);
@@ -105,27 +100,18 @@ Deno.serve(async (req) => {
     };
 
     log("config", {
-      login_customer_id: loginCustomerId,
-      api_version: API_VERSION,
-      workspace_id: wsId,
-      integration_id: integration.id,
+      login_customer_id: loginCustomerId, api_version: API_VERSION,
+      workspace_id: wsId, integration_id: integration.id,
     });
 
     if (!loginCustomerId) {
-      return json({
-        success: false,
-        error: "No GOOGLE_ADS_LOGIN_CUSTOMER_ID configured",
-        debug_log: debugLog,
-      });
+      return json({ success: false, error: "No GOOGLE_ADS_LOGIN_CUSTOMER_ID configured", debug_log: debugLog });
     }
 
-    // ── Step 1: ListAccessibleCustomers (to validate token) ──
+    // ── Step 1: ListAccessibleCustomers ──
     const listUrl = `https://googleads.googleapis.com/${API_VERSION}/customers:listAccessibleCustomers`;
     const listRes = await fetch(listUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "developer-token": developerToken,
-      },
+      headers: { Authorization: `Bearer ${accessToken}`, "developer-token": developerToken },
     });
 
     let accessibleIds: string[] = [];
@@ -136,18 +122,14 @@ Deno.serve(async (req) => {
       const listData = await listRes.json();
       accessibleIds = (listData.resourceNames || []).map((rn: string) => rn.replace("customers/", ""));
       log("listAccessibleCustomers_ok", {
-        count: accessibleIds.length,
-        customer_ids: accessibleIds.slice(0, 30),
+        count: accessibleIds.length, customer_ids: accessibleIds.slice(0, 30),
         login_customer_id_in_list: accessibleIds.includes(loginCustomerId),
       });
     }
 
-    // Check if login_customer_id is accessible
     if (accessibleIds.length > 0 && !accessibleIds.includes(loginCustomerId)) {
       log("WARNING_login_customer_id_mismatch", {
-        login_customer_id: loginCustomerId,
-        accessible_ids: accessibleIds,
-        message: "The configured login_customer_id is NOT in the list of accessible customers for this token",
+        login_customer_id: loginCustomerId, accessible_ids: accessibleIds,
       });
     }
 
@@ -160,33 +142,21 @@ Deno.serve(async (req) => {
       visited.add(parentId);
 
       const gaqlQuery = `
-        SELECT
-          customer_client.client_customer,
-          customer_client.descriptive_name,
-          customer_client.level,
-          customer_client.manager,
-          customer_client.status,
-          customer_client.hidden,
-          customer_client.id
+        SELECT customer_client.client_customer, customer_client.descriptive_name,
+          customer_client.level, customer_client.manager, customer_client.status,
+          customer_client.hidden, customer_client.id
         FROM customer_client
       `.trim();
 
       const searchUrl = `https://googleads.googleapis.com/${API_VERSION}/customers/${parentId}/googleAds:searchStream`;
 
-      log("traversal_query", {
-        parent_customer_id: parentId,
-        query_customer_id: parentId,
-        login_customer_id_header: loginCustomerId,
-        url: searchUrl,
-      });
+      log("traversal_query", { parent_customer_id: parentId, url: searchUrl });
 
       const searchRes = await fetch(searchUrl, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "developer-token": developerToken,
-          "login-customer-id": loginCustomerId,
-          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`, "developer-token": developerToken,
+          "login-customer-id": loginCustomerId, "Content-Type": "application/json",
         },
         body: JSON.stringify({ query: gaqlQuery }),
       });
@@ -194,85 +164,41 @@ Deno.serve(async (req) => {
       const ct = searchRes.headers.get("content-type") || "";
       if (!searchRes.ok || !ct.includes("application/json")) {
         const text = await searchRes.text();
-        log("traversal_error", {
-          parent_customer_id: parentId,
-          status: searchRes.status,
-          content_type: ct,
-          error: text.substring(0, 800),
-        });
+        log("traversal_error", { parent_customer_id: parentId, status: searchRes.status, error: text.substring(0, 800) });
         return;
       }
 
       const searchData = await searchRes.json();
-
       if (searchData.error) {
-        log("traversal_api_error", {
-          parent_customer_id: parentId,
-          error: searchData.error,
-        });
+        log("traversal_api_error", { parent_customer_id: parentId, error: searchData.error });
         return;
       }
 
-      // Parse results from searchStream (array of batches)
       const allResults: any[] = [];
       if (Array.isArray(searchData)) {
-        for (const batch of searchData) {
-          if (batch.results) allResults.push(...batch.results);
-        }
-      } else if (searchData.results) {
-        allResults.push(...searchData.results);
-      }
+        for (const batch of searchData) { if (batch.results) allResults.push(...batch.results); }
+      } else if (searchData.results) { allResults.push(...searchData.results); }
 
-      log("traversal_results", {
-        parent_customer_id: parentId,
-        rows_returned: allResults.length,
-        top_20: allResults.slice(0, 20).map((r: any) => {
-          const cc = r.customerClient;
-          return {
-            client_customer: cc?.clientCustomer || "",
-            id: cc?.id ? String(cc.id) : "",
-            descriptive_name: cc?.descriptiveName || "",
-            level: cc?.level,
-            manager: cc?.manager,
-            status: cc?.status,
-            hidden: cc?.hidden,
-          };
-        }),
-      });
+      log("traversal_results", { parent_customer_id: parentId, rows_returned: allResults.length });
 
-      // Collect child manager IDs to traverse next
       const childManagers: string[] = [];
-
       for (const r of allResults) {
         const cc = r.customerClient;
         const childId = cc?.id ? String(cc.id) : (cc?.clientCustomer || "").replace("customers/", "");
-        if (!childId || childId === parentId) continue; // skip self
+        if (!childId || childId === parentId) continue;
 
         const node: ClientNode = {
-          id: childId,
-          descriptive_name: cc?.descriptiveName || "",
-          level: cc?.level ?? 0,
-          manager: cc?.manager === true,
-          status: cc?.status || "UNKNOWN",
-          hidden: cc?.hidden === true,
+          id: childId, descriptive_name: cc?.descriptiveName || "",
+          level: cc?.level ?? 0, manager: cc?.manager === true,
+          status: cc?.status || "UNKNOWN", hidden: cc?.hidden === true,
           parent_customer_id: parentId,
         };
 
-        // Deduplicate
-        if (!allNodes.find(n => n.id === node.id)) {
-          allNodes.push(node);
-        }
-
-        // Queue managers for recursive traversal
-        if (node.manager && !visited.has(childId)) {
-          childManagers.push(childId);
-        }
+        if (!allNodes.find(n => n.id === node.id)) allNodes.push(node);
+        if (node.manager && !visited.has(childId)) childManagers.push(childId);
       }
 
-      // Recurse into child managers
-      for (const mgrId of childManagers) {
-        await traverseMCC(mgrId);
-      }
+      for (const mgrId of childManagers) { await traverseMCC(mgrId); }
     }
 
     await traverseMCC(loginCustomerId);
@@ -281,16 +207,11 @@ Deno.serve(async (req) => {
       total_nodes: allNodes.length,
       managers: allNodes.filter(n => n.manager).length,
       leaf_accounts: allNodes.filter(n => !n.manager).length,
-      hidden_count: allNodes.filter(n => n.hidden).length,
-      enabled_count: allNodes.filter(n => n.status === "ENABLED").length,
-      visited_mccs: Array.from(visited),
     });
 
     const result: Record<string, unknown> = {
-      api_version: API_VERSION,
-      login_customer_id: loginCustomerId,
-      workspace_id: wsId,
-      integration_id: integration.id,
+      api_version: API_VERSION, login_customer_id: loginCustomerId,
+      workspace_id: wsId, integration_id: integration.id,
       accessible_customer_ids: accessibleIds,
       traversal: {
         total_nodes: allNodes.length,
@@ -321,7 +242,6 @@ Deno.serve(async (req) => {
             manager: node.manager,
             manager_customer_id: loginCustomerId,
             parent_customer_id: node.parent_customer_id,
-            enabled: !node.manager && node.status === "ENABLED" && !node.hidden,
             sync_status: "ok",
             level: node.level,
             hidden: node.hidden,
@@ -341,6 +261,32 @@ Deno.serve(async (req) => {
         } else {
           await supabase.from("accounts").insert(accountData);
         }
+
+        // Also upsert into workspace_account_settings (don't overwrite is_enabled)
+        if (!node.manager) {
+          const { data: existingSetting } = await supabase
+            .from("workspace_account_settings").select("id")
+            .eq("workspace_id", wsId)
+            .eq("provider", "google_ads")
+            .eq("external_id", String(node.id))
+            .maybeSingle();
+
+          if (!existingSetting) {
+            await supabase.from("workspace_account_settings").insert({
+              workspace_id: wsId,
+              provider: "google_ads",
+              external_id: String(node.id),
+              account_name: node.descriptive_name || `Customer ${node.id}`,
+              is_enabled: false, // default disabled
+            });
+          } else {
+            // Only update name, don't touch is_enabled
+            await supabase.from("workspace_account_settings").update({
+              account_name: node.descriptive_name || `Customer ${node.id}`,
+            }).eq("id", existingSetting.id);
+          }
+        }
+
         upsertedCount++;
       }
       result.persisted = { upserted: upsertedCount };
