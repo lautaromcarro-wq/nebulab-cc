@@ -1649,6 +1649,82 @@ export type Database = {
           },
         ]
       }
+      workspace_financial_settings: {
+        Row: {
+          avg_cogs_percent: number
+          created_at: string
+          id: string
+          iva_percent: number
+          payment_fee_percent: number
+          refund_percent: number
+          shipping_percent: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          avg_cogs_percent?: number
+          created_at?: string
+          id?: string
+          iva_percent?: number
+          payment_fee_percent?: number
+          refund_percent?: number
+          shipping_percent?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          avg_cogs_percent?: number
+          created_at?: string
+          id?: string
+          iva_percent?: number
+          payment_fee_percent?: number
+          refund_percent?: number
+          shipping_percent?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_financial_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_health: {
+        Row: {
+          computed_at: string
+          penalties: Json
+          score: number
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          computed_at?: string
+          penalties?: Json
+          score?: number
+          status?: string
+          workspace_id: string
+        }
+        Update: {
+          computed_at?: string
+          penalties?: Json
+          score?: number
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_health_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_members: {
         Row: {
           created_at: string

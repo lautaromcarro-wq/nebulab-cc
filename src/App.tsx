@@ -13,6 +13,7 @@ import SegmentsSettings from "@/pages/SegmentsSettings";
 import Placeholder from "@/pages/Placeholder";
 import Connections from "@/pages/Connections";
 import AdminOps from "@/pages/AdminOps";
+import FinancialSettings from "@/pages/FinancialSettings";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
               <Route path="/connections" element={<Connections />} />
               <Route path="/settings/segments" element={<SegmentsSettings />} />
               <Route path="/admin/ops" element={<AdminOps />} />
+              <Route path="/settings/financial" element={<FinancialSettings />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
