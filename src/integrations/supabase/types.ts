@@ -1167,6 +1167,7 @@ export type Database = {
           clicks: number | null
           conversions: number | null
           created_at: string
+          currency: string
           date: string
           entity_id: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
@@ -1186,6 +1187,7 @@ export type Database = {
           clicks?: number | null
           conversions?: number | null
           created_at?: string
+          currency?: string
           date: string
           entity_id?: string | null
           entity_type: Database["public"]["Enums"]["entity_type"]
@@ -1205,6 +1207,7 @@ export type Database = {
           clicks?: number | null
           conversions?: number | null
           created_at?: string
+          currency?: string
           date?: string
           entity_id?: string | null
           entity_type?: Database["public"]["Enums"]["entity_type"]
@@ -1674,6 +1677,47 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "workspace_members_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_revenue_daily: {
+        Row: {
+          created_at: string
+          currency: string
+          date: string
+          source_breakdown: Json
+          total_purchases: number
+          total_revenue: number
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          date: string
+          source_breakdown?: Json
+          total_purchases?: number
+          total_revenue?: number
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          date?: string
+          source_breakdown?: Json
+          total_purchases?: number
+          total_revenue?: number
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_revenue_daily_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"

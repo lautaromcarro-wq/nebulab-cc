@@ -30,11 +30,13 @@ const JOB_DEFS: JobDef[] = [
   { name: "sync_ga4_daily",            provider: "ga4",        phase: 2 },
   // Phase 3: Post-processing
   { name: "resolve_creatives",         provider: null,         phase: 3 },
-  // Phase 4: Segment computation (map first, then daily)
-  { name: "compute_campaign_segment_map", provider: null,      phase: 4 },
-  { name: "compute_segment_daily",       provider: null,       phase: 5 },
-  // Phase 6: Health checks
-  { name: "health_checks",             provider: null,         phase: 6 },
+  // Phase 4: Revenue aggregation
+  { name: "aggregate_revenue",           provider: null,       phase: 4 },
+  // Phase 5: Segment computation (map first, then daily)
+  { name: "compute_campaign_segment_map", provider: null,      phase: 5 },
+  { name: "compute_segment_daily",       provider: null,       phase: 6 },
+  // Phase 7: Health checks
+  { name: "health_checks",             provider: null,         phase: 7 },
 ];
 
 const MAX_RETRIES = 3;
@@ -257,6 +259,24 @@ async function executeJob(
     case "resolve_creatives": {
       // TODO: implement creative resolution (dedup, hash matching)
       return { items_upserted: 0, details: { stub: true } };
+    }
+
+    case "aggregate_revenue": {
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/aggregate-revenue`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ workspace_id: workspaceId, days_back: 7 }),
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.errors?.join("; ") || "aggregate-revenue failed");
+      return { items_upserted: data.upserted ?? 0, details: { errors: data.errors } };
     }
 
     case "health_checks": {

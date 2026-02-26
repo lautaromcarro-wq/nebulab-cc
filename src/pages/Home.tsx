@@ -77,9 +77,11 @@ const Home = () => {
 
       {/* Summary KPIs */}
       {totals && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-          <KpiCard icon={DollarSign} label="Spend" value={fmtCurrency(totals.totalSpend)} />
-          <KpiCard icon={TrendingUp} label="ROAS" value={`${fmt(totals.roas, 2)}x`} />
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4 mb-8">
+          <KpiCard icon={DollarSign} label="Spend MTD" value={fmtCurrency(totals.totalSpend)} />
+          <KpiCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} />
+          <KpiCard icon={TrendingUp} label="ROAS GA4" value={`${fmt(totals.roasGa4, 2)}x`} />
+          <KpiCard icon={TrendingUp} label="Blended ROAS" value={`${fmt(totals.blendedRoas, 2)}x`} subtitle="Estimación" />
           <KpiCard icon={Eye} label="Impressions" value={fmt(totals.totalImpressions)} />
           <KpiCard icon={MousePointerClick} label="CTR" value={`${fmt(totals.ctr, 2)}%`} />
           <KpiCard icon={ShoppingCart} label="Purchases" value={fmt(totals.totalPurchases)} />
@@ -96,7 +98,7 @@ const Home = () => {
   );
 };
 
-function KpiCard({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+function KpiCard({ icon: Icon, label, value, subtitle }: { icon: React.ElementType; label: string; value: string; subtitle?: string }) {
   return (
     <Card className="shadow-sm">
       <CardContent className="p-4 flex items-center gap-3">
@@ -106,6 +108,7 @@ function KpiCard({ icon: Icon, label, value }: { icon: React.ElementType; label:
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground truncate">{label}</p>
           <p className="text-lg font-semibold tracking-tight leading-tight">{value}</p>
+          {subtitle && <p className="text-[10px] text-muted-foreground">{subtitle}</p>}
         </div>
       </CardContent>
     </Card>
