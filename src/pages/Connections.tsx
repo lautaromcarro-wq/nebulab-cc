@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2 } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
@@ -122,6 +122,12 @@ export default function Connections() {
   // Unified account settings
   const [accountSettings, setAccountSettings] = useState<AccountSetting[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Google Ads: show managers toggle
+  const [showGoogleManagers, setShowGoogleManagers] = useState(false);
+  // Google Ads: discovery state
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryResult, setDiscoveryResult] = useState<Record<string, unknown> | null>(null);
 
   const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
@@ -298,6 +304,29 @@ export default function Connections() {
     } finally { setSavingSettings(false); }
   };
 
+  const handleRunGoogleDiscovery = async () => {
+    if (!currentWorkspace) return;
+    setDiscovering(true);
+    setDiscoveryResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("debug-google-ads-discovery", {
+        body: { workspace_id: currentWorkspace.id, persist: true },
+      });
+      if (error) throw error;
+      setDiscoveryResult(data);
+      if (data?.success) {
+        const leafCount = data.traversal?.leaf_accounts?.length ?? 0;
+        const mgrCount = data.traversal?.managers?.length ?? 0;
+        toast({ title: "Discovery completado", description: `${leafCount} cuentas, ${mgrCount} managers encontrados.` });
+        refreshData();
+      } else {
+        toast({ title: "Discovery con errores", description: data?.error || "Error desconocido", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error en discovery", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setDiscovering(false); }
+  };
+
   // ── Meta account settings toggle ──
   const handleToggleMetaAccount = async (setting: AccountSetting) => {
     if (!currentWorkspace) return;
@@ -441,7 +470,10 @@ export default function Connections() {
   };
 
   // Google accounts: separate managers vs clients
+  const googleManagerAccounts = googleAccounts.filter(a => getMetaBool(a.metadata, "manager") === true);
   const googleClientAccounts = googleAccounts.filter(a => getMetaBool(a.metadata, "manager") !== true);
+  const googleDisplayAccounts = showGoogleManagers ? googleAccounts : googleClientAccounts;
+  const googleHiddenCount = googleAccounts.filter(a => getMetaBool(a.metadata, "hidden") === true).length;
 
   // Find the matching account for a setting (to get sync status)
   const findMetaAccount = (externalId: string) => metaAccounts.find(a => a.external_account_id === externalId);
@@ -726,10 +758,64 @@ export default function Connections() {
                 <div><span className="text-muted-foreground">Token expira:</span> <span>{googleIntegration.token_expires_at ? new Date(googleIntegration.token_expires_at).toLocaleDateString() : "—"}</span></div>
               </div>
 
+              {/* Discovery button */}
+              {isAdmin && googleIntegration.status === "connected" && (
+                <div className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Stethoscope className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Account Discovery (MCC Traversal)</span>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={handleRunGoogleDiscovery} disabled={discovering}>
+                      {discovering ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5 mr-1.5" />}
+                      {discovering ? "Descubriendo…" : "Run Discovery"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Traversal recursivo del MCC. Descubre managers intermedios y cuentas leaf.</p>
+
+                  {discoveryResult && !discoveryResult.success && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                      <p className="font-medium">Error: {String(discoveryResult.error)}</p>
+                      {String(discoveryResult.error).includes("login_customer_id") && (
+                        <p className="mt-1">login_customer_id mismatch / no access — verificá que GOOGLE_ADS_LOGIN_CUSTOMER_ID sea un MCC válido con acceso para este token.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {discoveryResult?.success && discoveryResult.traversal && (
+                    <div className="text-xs space-y-1 font-mono bg-muted/50 rounded p-2">
+                      <p>Leaf accounts: {(discoveryResult.traversal as any).leaf_accounts?.length ?? 0}</p>
+                      <p>Managers: {(discoveryResult.traversal as any).managers?.length ?? 0}</p>
+                      <p>MCCs visitados: {((discoveryResult.traversal as any).visited_mccs || []).join(", ")}</p>
+                      {discoveryResult.accessible_customer_ids && (
+                        <p>Token accessible IDs: {(discoveryResult.accessible_customer_ids as string[]).join(", ")}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Google Accounts table with Enabled toggle */}
-              {googleClientAccounts.length > 0 && (
+              {googleAccounts.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-medium mb-2">Accounts Discovered ({googleClientAccounts.length})</h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium">
+                      Accounts Discovered ({googleDisplayAccounts.length}
+                      {showGoogleManagers ? "" : ` leaf / ${googleAccounts.length} total`})
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {googleHiddenCount > 0 && (
+                        <Badge variant="outline" className="text-xs">{googleHiddenCount} hidden</Badge>
+                      )}
+                      <Button
+                        size="sm" variant="ghost" className="h-7 text-xs gap-1"
+                        onClick={() => setShowGoogleManagers(!showGoogleManagers)}
+                      >
+                        <Eye className="h-3 w-3" />
+                        {showGoogleManagers ? "Hide managers" : "Show managers"}
+                      </Button>
+                    </div>
+                  </div>
                   <div className="rounded-md border overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -737,19 +823,25 @@ export default function Connections() {
                           <th className="px-3 py-2 text-left font-medium">Enabled</th>
                           <th className="px-3 py-2 text-left font-medium">Nombre</th>
                           <th className="px-3 py-2 text-left font-medium">Customer ID</th>
-                          <th className="px-3 py-2 text-left font-medium">Moneda</th>
-                          <th className="px-3 py-2 text-left font-medium">Timezone</th>
+                          {showGoogleManagers && <th className="px-3 py-2 text-left font-medium">Tipo</th>}
+                          {showGoogleManagers && <th className="px-3 py-2 text-left font-medium">Parent</th>}
                           <th className="px-3 py-2 text-left font-medium">Estado</th>
                           <th className="px-3 py-2 text-left font-medium">Sync</th>
                         </tr>
                       </thead>
-                      <tbody>{googleClientAccounts.map((acct) => {
+                      <tbody>{googleDisplayAccounts.map((acct) => {
+                        const isManager = getMetaBool(acct.metadata, "manager") === true;
+                        const isHidden = getMetaBool(acct.metadata, "hidden") === true;
                         const isEnabled = getMetaBool(acct.metadata, "enabled") !== false;
+                        const parentId = getMetaString(acct.metadata, "parent_customer_id");
+                        const googleStatus = getMetaString(acct.metadata, "google_status");
                         const { status: syncSt, message: syncMsg, lastError } = getAccountSyncStatus(acct.metadata);
                         return (
-                          <tr key={acct.id} className="border-b last:border-0">
+                          <tr key={acct.id} className={`border-b last:border-0 ${isHidden ? "opacity-50" : ""}`}>
                             <td className="px-3 py-2">
-                              {isAdmin ? (
+                              {isManager ? (
+                                <Badge variant="outline" className="text-xs">MCC</Badge>
+                              ) : isAdmin ? (
                                 <Switch
                                   checked={isEnabled}
                                   onCheckedChange={() => handleToggleGoogleAccountEnabled(acct)}
@@ -759,12 +851,19 @@ export default function Connections() {
                                 <Badge variant={isEnabled ? "default" : "secondary"} className="text-xs">{isEnabled ? "ON" : "OFF"}</Badge>
                               )}
                             </td>
-                            <td className={`px-3 py-2 ${!isEnabled ? "text-muted-foreground line-through" : ""}`}>{acct.name}</td>
+                            <td className={`px-3 py-2 ${!isEnabled && !isManager ? "text-muted-foreground line-through" : ""}`}>
+                              {acct.name}
+                              {isHidden && <Badge variant="outline" className="text-xs ml-1">hidden</Badge>}
+                            </td>
                             <td className="px-3 py-2 font-mono text-xs">{acct.external_account_id}</td>
-                            <td className="px-3 py-2">{acct.currency ?? "—"}</td>
-                            <td className="px-3 py-2 text-xs">{acct.timezone ?? "—"}</td>
-                            <td className="px-3 py-2"><Badge variant={acct.status === "active" ? "default" : "secondary"} className="text-xs">{acct.status}</Badge></td>
-                            <td className="px-3 py-2">{getSyncBadge(syncSt, syncMsg, lastError)}</td>
+                            {showGoogleManagers && <td className="px-3 py-2 text-xs">{isManager ? "Manager" : "Client"}</td>}
+                            {showGoogleManagers && <td className="px-3 py-2 font-mono text-xs">{parentId || "—"}</td>}
+                            <td className="px-3 py-2">
+                              <Badge variant={googleStatus === "ENABLED" ? "default" : "secondary"} className="text-xs">
+                                {googleStatus || acct.status}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2">{isManager ? "—" : getSyncBadge(syncSt, syncMsg, lastError)}</td>
                           </tr>
                         );
                       })}</tbody>
@@ -792,7 +891,11 @@ export default function Connections() {
                 </div>
               )}
 
-              {googleClientAccounts.length === 0 && <p className="text-sm text-muted-foreground">No se encontraron cuentas clientes.</p>}
+              {googleAccounts.length === 0 && (
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>No se encontraron cuentas. Ejecutá "Run Discovery" para traversar el MCC.</p>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{isAdmin ? "Conectá tu cuenta de Google Ads para descubrir cuentas publicitarias." : "Pedile a un admin que conecte Google Ads."}</p>
