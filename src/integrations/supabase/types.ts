@@ -278,6 +278,71 @@ export type Database = {
           },
         ]
       }
+      backfill_runs: {
+        Row: {
+          chunk_size_days: number
+          chunks_completed: number
+          chunks_total: number
+          created_at: string
+          current_chunk_end: string | null
+          current_chunk_start: string | null
+          details: Json | null
+          end_date: string
+          error_message: string | null
+          id: string
+          items_inserted: number
+          provider: string
+          start_date: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          chunk_size_days?: number
+          chunks_completed?: number
+          chunks_total?: number
+          created_at?: string
+          current_chunk_end?: string | null
+          current_chunk_start?: string | null
+          details?: Json | null
+          end_date: string
+          error_message?: string | null
+          id?: string
+          items_inserted?: number
+          provider: string
+          start_date: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          chunk_size_days?: number
+          chunks_completed?: number
+          chunks_total?: number
+          created_at?: string
+          current_chunk_end?: string | null
+          current_chunk_start?: string | null
+          details?: Json | null
+          end_date?: string
+          error_message?: string | null
+          id?: string
+          items_inserted?: number
+          provider?: string
+          start_date?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "backfill_runs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_segment_map: {
         Row: {
           account_id: string
