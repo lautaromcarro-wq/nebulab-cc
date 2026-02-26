@@ -329,12 +329,15 @@ export default function Connections() {
   const handleConnectGa4 = async () => {
     if (!currentWorkspace || !session) return;
     setConnectingGa4(true);
+    setOauthBlocked(false);
     try {
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "hagggvnmwsnshkofhmmq";
       const startUrl = `https://${projectId}.supabase.co/functions/v1/oauth-start-ga4?workspace_id=${encodeURIComponent(currentWorkspace.id)}`;
-      const link = document.createElement("a");
-      link.href = startUrl; link.target = "_blank"; link.rel = "noopener noreferrer";
-      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      const ok = openAuthWindow(startUrl);
+      if (!ok) {
+        setOauthBlocked(true);
+        navigateTopLevel(startUrl);
+      }
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "No se pudo iniciar OAuth GA4", variant: "destructive" });
     } finally { setTimeout(() => setConnectingGa4(false), 3000); }
@@ -1019,9 +1022,12 @@ export default function Connections() {
             )}
             {isAdmin && (
               <Button size="sm" onClick={handleConnectGa4} disabled={connectingGa4 || loading}>
-                {connectingGa4 && <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-                {ga4Integration ? "Reconectar" : "Conectar GA4"}
+                {connectingGa4 ? <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5 mr-1.5" />}
+                {ga4Integration ? "Reconectar GA4" : "Conectar GA4"}
               </Button>
+            )}
+            {isAdmin && window.self !== window.top && (
+              <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Abrí en pestaña nueva para conectar</p>
             )}
           </div>
         </CardHeader>
