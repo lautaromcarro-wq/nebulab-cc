@@ -26,6 +26,7 @@ const navItems = [
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/connections", label: "Connections", icon: Plug },
   { to: "/settings/segments", label: "Segments", icon: Settings },
+  { to: "/settings/financial", label: "Financial", icon: DollarSign },
   { to: "/admin/ops", label: "Ops", icon: ShieldAlert },
 ];
 

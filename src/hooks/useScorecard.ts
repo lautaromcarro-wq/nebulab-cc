@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { useFinancialSettings } from "@/hooks/useFinancialSettings";
 import { format, getDaysInMonth, differenceInDays } from "date-fns";
 
 export interface SegmentScorecard {
@@ -35,7 +36,6 @@ export interface ScorecardTotals {
   totalPurchases: number;
   roas: number;
   ctr: number;
-  // New: per-platform ROAS
   roasMeta: number;
   roasGoogle: number;
   roasGa4: number;
@@ -43,6 +43,9 @@ export interface ScorecardTotals {
   revenueGa4: number;
   spendMeta: number;
   spendGoogle: number;
+  // Contribution margin
+  contributionMargin: number;
+  marginPercent: number;
 }
 
 export function useScorecard() {
@@ -52,6 +55,7 @@ export function useScorecard() {
     selectedSegmentId,
     dateRange,
   } = useWorkspace();
+  const { settings: fin } = useFinancialSettings();
 
   const fromStr = format(dateRange.from, "yyyy-MM-dd");
   const toStr = format(dateRange.to, "yyyy-MM-dd");
@@ -176,15 +180,27 @@ export function useScorecard() {
       // Use workspace_revenue_daily as fallback if segments have no GA4 revenue
       const effectiveRevGa4 = totalRevGa4 > 0 ? totalRevGa4 : wsRevenueGa4;
 
+      const effectiveRev = totalRevenue > 0 ? totalRevenue : wsRevenueGa4;
+
+      // Contribution margin calculation
+      const totalDeductions =
+        effectiveRev * (fin.avg_cogs_percent / 100) +
+        effectiveRev * (fin.shipping_percent / 100) +
+        effectiveRev * (fin.payment_fee_percent / 100) +
+        effectiveRev * (fin.refund_percent / 100) +
+        effectiveRev * (fin.iva_percent / 100);
+      const contributionMargin = effectiveRev - totalSpend - totalDeductions;
+      const marginPercent = effectiveRev > 0 ? (contributionMargin / effectiveRev) * 100 : 0;
+
       return {
         cards,
         totals: {
           totalSpend,
-          totalRevenue: totalRevenue > 0 ? totalRevenue : wsRevenueGa4,
+          totalRevenue: effectiveRev,
           totalImpressions,
           totalClicks,
           totalPurchases: totalPurchases > 0 ? totalPurchases : wsPurchases,
-          roas: totalSpend > 0 ? (totalRevenue > 0 ? totalRevenue : wsRevenueGa4) / totalSpend : 0,
+          roas: totalSpend > 0 ? effectiveRev / totalSpend : 0,
           ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
           roasMeta: totalSpendMeta > 0 ? totalRevPlatform / totalSpendMeta : 0,
           roasGoogle: totalSpendGoogle > 0 ? totalRevPlatform / totalSpendGoogle : 0,
@@ -193,6 +209,8 @@ export function useScorecard() {
           revenueGa4: effectiveRevGa4,
           spendMeta: totalSpendMeta,
           spendGoogle: totalSpendGoogle,
+          contributionMargin,
+          marginPercent,
         },
       };
     },
@@ -212,6 +230,6 @@ function emptyTotals(): ScorecardTotals {
   return {
     totalSpend: 0, totalRevenue: 0, totalImpressions: 0, totalClicks: 0, totalPurchases: 0,
     roas: 0, ctr: 0, roasMeta: 0, roasGoogle: 0, roasGa4: 0, blendedRoas: 0,
-    revenueGa4: 0, spendMeta: 0, spendGoogle: 0,
+    revenueGa4: 0, spendMeta: 0, spendGoogle: 0, contributionMargin: 0, marginPercent: 0,
   };
 }

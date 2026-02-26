@@ -35,8 +35,9 @@ const JOB_DEFS: JobDef[] = [
   // Phase 5: Segment computation (map first, then daily)
   { name: "compute_campaign_segment_map", provider: null,      phase: 5 },
   { name: "compute_segment_daily",       provider: null,       phase: 6 },
-  // Phase 7: Health checks
+  // Phase 7: Health checks + workspace health score
   { name: "health_checks",             provider: null,         phase: 7 },
+  { name: "compute_workspace_health",  provider: null,         phase: 7 },
 ];
 
 const MAX_RETRIES = 3;
@@ -305,6 +306,20 @@ async function executeJob(
         }
       }
       return { items_upserted: 0, details: { checked: integrations?.length ?? 0, issues } };
+    }
+
+    case "compute_workspace_health": {
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/compute-workspace-health`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ workspace_id: workspaceId }),
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      return { items_upserted: 0, details: { score: data.score, status: data.status, penalties: data.penalties?.length ?? 0 } };
     }
 
     default:

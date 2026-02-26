@@ -1,5 +1,6 @@
 import { useScorecard, type SegmentScorecard } from "@/hooks/useScorecard";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { useWorkspaceHealth } from "@/hooks/useWorkspaceHealth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  AlertTriangle,
+  Heart,
+  Percent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +38,7 @@ const pacingConfig = {
 const Home = () => {
   const { segments, loading: wsLoading, currentWorkspace } = useWorkspace();
   const { data, isLoading } = useScorecard();
+  const { data: health } = useWorkspaceHealth();
 
   const loading = wsLoading || isLoading;
   const totals = data?.totals;
@@ -73,18 +78,37 @@ const Home = () => {
   return (
     <div>
       <h1 className="text-2xl font-bold tracking-tight mb-1">Scorecard</h1>
-      <p className="text-muted-foreground text-sm mb-6">Vista global de performance y pacing por Segment.</p>
+      <p className="text-muted-foreground text-sm mb-4">Vista global de performance y pacing por Segment.</p>
+
+      {/* Health Banner */}
+      {health && health.status !== "healthy" && (
+        <HealthBanner health={health} />
+      )}
 
       {/* Summary KPIs */}
       {totals && (
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-3 mb-8">
           <KpiCard icon={DollarSign} label="Spend MTD" value={fmtCurrency(totals.totalSpend)} />
           <KpiCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} />
           <KpiCard icon={TrendingUp} label="ROAS GA4" value={`${fmt(totals.roasGa4, 2)}x`} />
           <KpiCard icon={TrendingUp} label="Blended ROAS" value={`${fmt(totals.blendedRoas, 2)}x`} subtitle="Estimación" />
+          <KpiCard
+            icon={DollarSign}
+            label="Contribution"
+            value={fmtCurrency(totals.contributionMargin)}
+            className={totals.contributionMargin < 0 ? "border-destructive/30" : ""}
+          />
+          <KpiCard icon={Percent} label="Margin %" value={`${fmt(totals.marginPercent, 1)}%`} />
           <KpiCard icon={Eye} label="Impressions" value={fmt(totals.totalImpressions)} />
           <KpiCard icon={MousePointerClick} label="CTR" value={`${fmt(totals.ctr, 2)}%`} />
           <KpiCard icon={ShoppingCart} label="Purchases" value={fmt(totals.totalPurchases)} />
+        </div>
+      )}
+
+      {/* Health Score Card (when healthy, show compact) */}
+      {health && (
+        <div className="mb-6">
+          <HealthScoreCard health={health} />
         </div>
       )}
 
@@ -98,9 +122,63 @@ const Home = () => {
   );
 };
 
-function KpiCard({ icon: Icon, label, value, subtitle }: { icon: React.ElementType; label: string; value: string; subtitle?: string }) {
+function HealthBanner({ health }: { health: { status: string; penalties: Array<{ rule: string; detail: string }> } }) {
+  const isCritical = health.status === "critical";
+  return (
+    <div className={cn(
+      "rounded-lg border p-4 mb-4 flex items-start gap-3",
+      isCritical ? "bg-destructive/5 border-destructive/30" : "bg-amber-500/5 border-amber-500/30"
+    )}>
+      <AlertTriangle className={cn("h-5 w-5 mt-0.5 shrink-0", isCritical ? "text-destructive" : "text-amber-600")} />
+      <div className="min-w-0">
+        <p className={cn("text-sm font-semibold", isCritical ? "text-destructive" : "text-amber-700")}>
+          {isCritical ? "Estado Crítico" : "Requiere Atención"}
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {health.penalties.slice(0, 3).map((p, i) => (
+            <li key={i} className="text-xs text-muted-foreground">{p.detail}</li>
+          ))}
+          {health.penalties.length > 3 && (
+            <li className="text-xs text-muted-foreground">+{health.penalties.length - 3} más</li>
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function HealthScoreCard({ health }: { health: { score: number; status: string; penalties: Array<{ rule: string; points: number; detail: string }> } }) {
+  const color = health.status === "healthy" ? "text-emerald-600" : health.status === "attention" ? "text-amber-600" : "text-destructive";
+  const bg = health.status === "healthy" ? "bg-emerald-500" : health.status === "attention" ? "bg-amber-500" : "bg-destructive";
+
   return (
     <Card className="shadow-sm">
+      <CardContent className="p-4 flex items-center gap-4">
+        <div className="flex items-center gap-3 shrink-0">
+          <Heart className={cn("h-5 w-5", color)} />
+          <div>
+            <p className="text-xs text-muted-foreground">Health Score</p>
+            <p className={cn("text-2xl font-bold tracking-tight", color)}>{health.score}</p>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <Progress value={health.score} className="h-2" />
+        </div>
+        <Badge variant="outline" className={cn("text-xs shrink-0",
+          health.status === "healthy" ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" :
+          health.status === "attention" ? "bg-amber-500/10 text-amber-700 border-amber-500/20" :
+          "bg-destructive/10 text-destructive border-destructive/20"
+        )}>
+          {health.status === "healthy" ? "Saludable" : health.status === "attention" ? "Atención" : "Crítico"}
+        </Badge>
+      </CardContent>
+    </Card>
+  );
+}
+
+function KpiCard({ icon: Icon, label, value, subtitle, className }: { icon: React.ElementType; label: string; value: string; subtitle?: string; className?: string }) {
+  return (
+    <Card className={cn("shadow-sm", className)}>
       <CardContent className="p-4 flex items-center gap-3">
         <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
           <Icon className="h-4.5 w-4.5 text-primary" />
