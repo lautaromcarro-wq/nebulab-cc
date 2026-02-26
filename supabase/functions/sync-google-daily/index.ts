@@ -431,7 +431,7 @@ async function gaqlSearch(
   customerId: string, query: string
 ): Promise<any> {
   const res = await fetch(
-    `https://googleads.googleapis.com/v18/customers/${customerId}/googleAds:searchStream`,
+    `https://googleads.googleapis.com/v22/customers/${customerId}/googleAds:searchStream`,
     {
       method: "POST",
       headers: {
