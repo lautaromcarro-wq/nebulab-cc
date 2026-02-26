@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2, Eye } from "lucide-react";
+import { Plug, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Play, Clock, ExternalLink, ShieldAlert, Copy, Info, Stethoscope, Building2, Eye, Database } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Tables, Json } from "@/integrations/supabase/types";
 
 type Integration = Tables<"integrations">;
@@ -138,6 +140,16 @@ export default function Connections() {
   // GA4 discovery state
   const [discoveringGa4, setDiscoveringGa4] = useState(false);
   const [ga4DiscoveryResult, setGa4DiscoveryResult] = useState<Record<string, unknown> | null>(null);
+
+  // Historical backfill state
+  const [historicalProvider, setHistoricalProvider] = useState<string>("all");
+  const [historicalRunning, setHistoricalRunning] = useState(false);
+  const [historicalRun, setHistoricalRun] = useState<{
+    id: string; status: string; chunks_completed: number; chunks_total: number;
+    items_inserted: number; current_chunk_start: string | null; current_chunk_end: string | null;
+    error_message: string | null;
+  } | null>(null);
+  const [historicalPolling, setHistoricalPolling] = useState(false);
 
   const refreshData = useCallback(async () => {
     if (!currentWorkspace) return;
@@ -386,6 +398,69 @@ export default function Connections() {
       toast({ title: "Error en GA4 Discovery", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
     } finally { setDiscoveringGa4(false); }
   };
+
+  // ── Historical Backfill ──
+  const handleStartHistoricalBackfill = async () => {
+    if (!currentWorkspace || !session) return;
+    setHistoricalRunning(true);
+    setHistoricalRun(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("backfill-historical", {
+        body: {
+          workspace_id: currentWorkspace.id,
+          provider: historicalProvider,
+          start_date: "2026-01-01",
+          end_date: new Date().toISOString().split("T")[0],
+          chunk_size_days: 30,
+        },
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Backfill failed");
+      setHistoricalRun({
+        id: data.backfill_run_id,
+        status: data.status,
+        chunks_completed: data.chunks_completed,
+        chunks_total: data.chunks_total,
+        items_inserted: data.items_inserted,
+        current_chunk_start: null,
+        current_chunk_end: null,
+        error_message: data.errors?.join("; ") || null,
+      });
+      toast({
+        title: "Backfill completado",
+        description: `${data.items_inserted} registros insertados en ${data.chunks_completed} chunks.`,
+      });
+      refreshData();
+    } catch (err) {
+      toast({ title: "Error en backfill", description: err instanceof Error ? err.message : "Error", variant: "destructive" });
+    } finally { setHistoricalRunning(false); }
+  };
+
+  // Load latest backfill run on mount
+  useEffect(() => {
+    if (!currentWorkspace) return;
+    supabase
+      .from("backfill_runs")
+      .select("*")
+      .eq("workspace_id", currentWorkspace.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const run = data[0] as any;
+          setHistoricalRun({
+            id: run.id,
+            status: run.status,
+            chunks_completed: run.chunks_completed,
+            chunks_total: run.chunks_total,
+            items_inserted: run.items_inserted,
+            current_chunk_start: run.current_chunk_start,
+            current_chunk_end: run.current_chunk_end,
+            error_message: run.error_message,
+          });
+        }
+      });
+  }, [currentWorkspace]);
 
   const handleSyncGa4 = async () => {
     if (!currentWorkspace || !session) return;
@@ -1195,6 +1270,87 @@ export default function Connections() {
           )}
         </CardContent>
       </Card>
+
+      {/* ═══════════ Historical Backfill Card ═══════════ */}
+      {isAdmin && currentWorkspace && (
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between space-y-0">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2 text-lg"><Database className="h-5 w-5" />Backfill Histórico</CardTitle>
+              <CardDescription>Cargá datos desde 01-01-2026 hasta hoy. Divide en chunks de 30 días por seguridad.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Proveedor</label>
+                <Select value={historicalProvider} onValueChange={setHistoricalProvider}>
+                  <SelectTrigger className="w-40 h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="meta">Meta Ads</SelectItem>
+                    <SelectItem value="google_ads">Google Ads</SelectItem>
+                    <SelectItem value="ga4">GA4</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Rango</label>
+                <p className="text-sm font-mono">2026-01-01 → hoy</p>
+              </div>
+              <div className="self-end">
+                <Button onClick={handleStartHistoricalBackfill} disabled={historicalRunning}>
+                  {historicalRunning ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
+                  {historicalRunning ? "Ejecutando…" : "Iniciar Backfill"}
+                </Button>
+              </div>
+            </div>
+
+            {historicalRun && (
+              <div className="rounded-md border p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Badge className={
+                      historicalRun.status === "completed" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" :
+                      historicalRun.status === "running" ? "bg-blue-500/15 text-blue-600 border-blue-500/30" :
+                      historicalRun.status === "failed" ? "bg-destructive/15 text-destructive border-destructive/30" :
+                      "bg-muted text-muted-foreground"
+                    }>
+                      {historicalRun.status === "completed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                      {historicalRun.status === "running" && <RefreshCw className="h-3 w-3 mr-1 animate-spin" />}
+                      {historicalRun.status === "failed" && <XCircle className="h-3 w-3 mr-1" />}
+                      {historicalRun.status}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {historicalRun.chunks_completed}/{historicalRun.chunks_total} chunks
+                    </span>
+                  </div>
+                  <span className="text-sm font-mono font-medium">{historicalRun.items_inserted.toLocaleString()} rows</span>
+                </div>
+
+                <Progress
+                  value={historicalRun.chunks_total > 0 ? (historicalRun.chunks_completed / historicalRun.chunks_total) * 100 : 0}
+                  className="h-2"
+                />
+
+                {historicalRun.current_chunk_start && historicalRun.current_chunk_end && historicalRun.status === "running" && (
+                  <p className="text-xs text-muted-foreground">
+                    Chunk actual: {historicalRun.current_chunk_start} → {historicalRun.current_chunk_end}
+                  </p>
+                )}
+
+                {historicalRun.error_message && (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+                    {historicalRun.error_message.substring(0, 500)}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
