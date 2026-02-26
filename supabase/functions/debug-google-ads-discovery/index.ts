@@ -8,6 +8,16 @@ const corsHeaders = {
 
 const API_VERSION = "v22";
 
+interface ClientNode {
+  id: string;
+  descriptive_name: string;
+  level: number;
+  manager: boolean;
+  status: string;
+  hidden: boolean;
+  parent_customer_id: string;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -31,7 +41,7 @@ Deno.serve(async (req) => {
       persist = body.persist === true;
     } catch { /* no body */ }
 
-    // Find the integration + credential
+    // Find integration + credential
     let intQuery = supabase
       .from("integrations")
       .select("id, workspace_id")
@@ -78,7 +88,6 @@ Deno.serve(async (req) => {
         return json({ success: false, error: `Token refresh failed: ${refreshData.error_description || refreshData.error}` });
       }
       accessToken = refreshData.access_token;
-      // Update stored token
       const newExpiry = new Date(Date.now() + (refreshData.expires_in || 3600) * 1000).toISOString();
       await supabase.from("credentials").update({
         access_token: accessToken,
@@ -87,14 +96,30 @@ Deno.serve(async (req) => {
       }).eq("integration_id", integration.id);
     }
 
-    const result: Record<string, unknown> = {
-      api_version: API_VERSION,
-      login_customer_id: loginCustomerId,
-      workspace_id: wsId,
-      integration_id: integration.id,
+    const debugLog: Record<string, unknown>[] = [];
+
+    const log = (msg: string, data?: Record<string, unknown>) => {
+      const entry = { ts: new Date().toISOString(), msg, ...data };
+      debugLog.push(entry);
+      console.log("[discovery]", JSON.stringify(entry));
     };
 
-    // ── Step 1: ListAccessibleCustomers ──
+    log("config", {
+      login_customer_id: loginCustomerId,
+      api_version: API_VERSION,
+      workspace_id: wsId,
+      integration_id: integration.id,
+    });
+
+    if (!loginCustomerId) {
+      return json({
+        success: false,
+        error: "No GOOGLE_ADS_LOGIN_CUSTOMER_ID configured",
+        debug_log: debugLog,
+      });
+    }
+
+    // ── Step 1: ListAccessibleCustomers (to validate token) ──
     const listUrl = `https://googleads.googleapis.com/${API_VERSION}/customers:listAccessibleCustomers`;
     const listRes = await fetch(listUrl, {
       headers: {
@@ -103,27 +128,37 @@ Deno.serve(async (req) => {
       },
     });
 
-    const listContentType = listRes.headers.get("content-type") || "";
-    if (!listRes.ok || !listContentType.includes("application/json")) {
+    let accessibleIds: string[] = [];
+    if (!listRes.ok) {
       const text = await listRes.text();
-      result.listAccessibleCustomers = {
-        status: listRes.status,
-        error: text.substring(0, 500),
-        content_type: listContentType,
-      };
+      log("listAccessibleCustomers_error", { status: listRes.status, error: text.substring(0, 500) });
     } else {
       const listData = await listRes.json();
-      const resourceNames = listData.resourceNames || [];
-      const accessibleIds = resourceNames.map((rn: string) => rn.replace("customers/", ""));
-      result.listAccessibleCustomers = {
-        status: listRes.status,
+      accessibleIds = (listData.resourceNames || []).map((rn: string) => rn.replace("customers/", ""));
+      log("listAccessibleCustomers_ok", {
         count: accessibleIds.length,
-        customer_ids: accessibleIds.slice(0, 20),
-      };
+        customer_ids: accessibleIds.slice(0, 30),
+        login_customer_id_in_list: accessibleIds.includes(loginCustomerId),
+      });
     }
 
-    // ── Step 2: customer_client GAQL via searchStream ──
-    if (loginCustomerId) {
+    // Check if login_customer_id is accessible
+    if (accessibleIds.length > 0 && !accessibleIds.includes(loginCustomerId)) {
+      log("WARNING_login_customer_id_mismatch", {
+        login_customer_id: loginCustomerId,
+        accessible_ids: accessibleIds,
+        message: "The configured login_customer_id is NOT in the list of accessible customers for this token",
+      });
+    }
+
+    // ── Step 2: Recursive traversal ──
+    const visited = new Set<string>();
+    const allNodes: ClientNode[] = [];
+
+    async function traverseMCC(parentId: string): Promise<void> {
+      if (visited.has(parentId)) return;
+      visited.add(parentId);
+
       const gaqlQuery = `
         SELECT
           customer_client.client_customer,
@@ -131,12 +166,20 @@ Deno.serve(async (req) => {
           customer_client.level,
           customer_client.manager,
           customer_client.status,
+          customer_client.hidden,
           customer_client.id
         FROM customer_client
-        WHERE customer_client.level <= 1
       `.trim();
 
-      const searchUrl = `https://googleads.googleapis.com/${API_VERSION}/customers/${loginCustomerId}/googleAds:searchStream`;
+      const searchUrl = `https://googleads.googleapis.com/${API_VERSION}/customers/${parentId}/googleAds:searchStream`;
+
+      log("traversal_query", {
+        parent_customer_id: parentId,
+        query_customer_id: parentId,
+        login_customer_id_header: loginCustomerId,
+        url: searchUrl,
+      });
+
       const searchRes = await fetch(searchUrl, {
         method: "POST",
         headers: {
@@ -148,137 +191,159 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ query: gaqlQuery }),
       });
 
-      const searchContentType = searchRes.headers.get("content-type") || "";
-      if (!searchRes.ok || !searchContentType.includes("application/json")) {
+      const ct = searchRes.headers.get("content-type") || "";
+      if (!searchRes.ok || !ct.includes("application/json")) {
         const text = await searchRes.text();
-        result.customerClient = {
+        log("traversal_error", {
+          parent_customer_id: parentId,
           status: searchRes.status,
-          error: text.substring(0, 500),
-          content_type: searchContentType,
-          url_used: searchUrl,
-        };
-      } else {
-        const searchData = await searchRes.json();
-
-        if (searchData.error) {
-          result.customerClient = {
-            status: "api_error",
-            error: searchData.error,
-          };
-        } else {
-          const allResults: any[] = [];
-          if (Array.isArray(searchData)) {
-            for (const batch of searchData) {
-              if (batch.results) allResults.push(...batch.results);
-            }
-          } else if (searchData.results) {
-            allResults.push(...searchData.results);
-          }
-
-          const clients = allResults.map((r: any) => {
-            const cc = r.customerClient;
-            return {
-              id: cc?.id ? String(cc.id) : (cc?.clientCustomer || "").replace("customers/", ""),
-              descriptive_name: cc?.descriptiveName || "",
-              level: cc?.level,
-              manager: cc?.manager,
-              status: cc?.status,
-            };
-          });
-
-          result.customerClient = {
-            status: searchRes.status,
-            count: clients.length,
-            clients: clients.slice(0, 20),
-          };
-
-          // ── Persist accounts if requested ──
-          if (persist) {
-            let upsertedCount = 0;
-            for (const client of clients) {
-              const isManager = client.manager === true;
-              const statusStr = client.status === "ENABLED" ? "active" : "disabled";
-              const accountData = {
-                workspace_id: wsId,
-                provider: "google_ads" as const,
-                external_account_id: String(client.id),
-                name: client.descriptive_name || `Customer ${client.id}`,
-                status: (statusStr === "active" ? "active" : "disabled") as "active" | "disabled",
-                integration_id: integration.id,
-                metadata: {
-                  manager: isManager,
-                  manager_customer_id: loginCustomerId,
-                  enabled: !isManager,
-                  sync_status: "ok",
-                  level: client.level,
-                },
-              };
-
-              const { data: existing } = await supabase
-                .from("accounts").select("id")
-                .eq("workspace_id", wsId)
-                .eq("external_account_id", String(client.id))
-                .eq("provider", "google_ads")
-                .maybeSingle();
-
-              if (existing) {
-                await supabase.from("accounts").update(accountData).eq("id", existing.id);
-              } else {
-                await supabase.from("accounts").insert(accountData);
-              }
-              upsertedCount++;
-            }
-            result.persisted = { upserted: upsertedCount };
-          }
-        }
+          content_type: ct,
+          error: text.substring(0, 800),
+        });
+        return;
       }
-    } else {
-      result.customerClient = { error: "No login_customer_id configured" };
-    }
 
-    // ── Step 3: Also try search (non-stream) as fallback diagnostic ──
-    if (loginCustomerId) {
-      const searchUrl2 = `https://googleads.googleapis.com/${API_VERSION}/customers/${loginCustomerId}/googleAds:search`;
-      const searchRes2 = await fetch(searchUrl2, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "developer-token": developerToken,
-          "login-customer-id": loginCustomerId,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level, customer_client.manager FROM customer_client WHERE customer_client.level <= 1",
-          pageSize: 20,
+      const searchData = await searchRes.json();
+
+      if (searchData.error) {
+        log("traversal_api_error", {
+          parent_customer_id: parentId,
+          error: searchData.error,
+        });
+        return;
+      }
+
+      // Parse results from searchStream (array of batches)
+      const allResults: any[] = [];
+      if (Array.isArray(searchData)) {
+        for (const batch of searchData) {
+          if (batch.results) allResults.push(...batch.results);
+        }
+      } else if (searchData.results) {
+        allResults.push(...searchData.results);
+      }
+
+      log("traversal_results", {
+        parent_customer_id: parentId,
+        rows_returned: allResults.length,
+        top_20: allResults.slice(0, 20).map((r: any) => {
+          const cc = r.customerClient;
+          return {
+            client_customer: cc?.clientCustomer || "",
+            id: cc?.id ? String(cc.id) : "",
+            descriptive_name: cc?.descriptiveName || "",
+            level: cc?.level,
+            manager: cc?.manager,
+            status: cc?.status,
+            hidden: cc?.hidden,
+          };
         }),
       });
 
-      const ct2 = searchRes2.headers.get("content-type") || "";
-      if (!searchRes2.ok || !ct2.includes("application/json")) {
-        const text = await searchRes2.text();
-        result.customerClient_search = {
-          status: searchRes2.status,
-          error: text.substring(0, 500),
-          content_type: ct2,
+      // Collect child manager IDs to traverse next
+      const childManagers: string[] = [];
+
+      for (const r of allResults) {
+        const cc = r.customerClient;
+        const childId = cc?.id ? String(cc.id) : (cc?.clientCustomer || "").replace("customers/", "");
+        if (!childId || childId === parentId) continue; // skip self
+
+        const node: ClientNode = {
+          id: childId,
+          descriptive_name: cc?.descriptiveName || "",
+          level: cc?.level ?? 0,
+          manager: cc?.manager === true,
+          status: cc?.status || "UNKNOWN",
+          hidden: cc?.hidden === true,
+          parent_customer_id: parentId,
         };
-      } else {
-        const data2 = await searchRes2.json();
-        if (data2.error) {
-          result.customerClient_search = { status: "api_error", error: data2.error };
-        } else {
-          const results2 = data2.results || [];
-          result.customerClient_search = {
-            status: searchRes2.status,
-            count: results2.length,
-            clients: results2.slice(0, 20).map((r: any) => ({
-              id: r.customerClient?.id ? String(r.customerClient.id) : "",
-              name: r.customerClient?.descriptiveName || "",
-              level: r.customerClient?.level,
-              manager: r.customerClient?.manager,
-            })),
-          };
+
+        // Deduplicate
+        if (!allNodes.find(n => n.id === node.id)) {
+          allNodes.push(node);
+        }
+
+        // Queue managers for recursive traversal
+        if (node.manager && !visited.has(childId)) {
+          childManagers.push(childId);
         }
       }
+
+      // Recurse into child managers
+      for (const mgrId of childManagers) {
+        await traverseMCC(mgrId);
+      }
+    }
+
+    await traverseMCC(loginCustomerId);
+
+    log("traversal_complete", {
+      total_nodes: allNodes.length,
+      managers: allNodes.filter(n => n.manager).length,
+      leaf_accounts: allNodes.filter(n => !n.manager).length,
+      hidden_count: allNodes.filter(n => n.hidden).length,
+      enabled_count: allNodes.filter(n => n.status === "ENABLED").length,
+      visited_mccs: Array.from(visited),
+    });
+
+    const result: Record<string, unknown> = {
+      api_version: API_VERSION,
+      login_customer_id: loginCustomerId,
+      workspace_id: wsId,
+      integration_id: integration.id,
+      accessible_customer_ids: accessibleIds,
+      traversal: {
+        total_nodes: allNodes.length,
+        managers: allNodes.filter(n => n.manager).map(n => ({
+          id: n.id, name: n.descriptive_name, status: n.status, hidden: n.hidden, parent: n.parent_customer_id,
+        })),
+        leaf_accounts: allNodes.filter(n => !n.manager).map(n => ({
+          id: n.id, name: n.descriptive_name, status: n.status, hidden: n.hidden, parent: n.parent_customer_id,
+        })),
+        visited_mccs: Array.from(visited),
+      },
+      debug_log: debugLog,
+    };
+
+    // ── Persist if requested ──
+    if (persist) {
+      let upsertedCount = 0;
+      for (const node of allNodes) {
+        const statusStr = node.status === "ENABLED" ? "active" : "disabled";
+        const accountData = {
+          workspace_id: wsId,
+          provider: "google_ads" as const,
+          external_account_id: String(node.id),
+          name: node.descriptive_name || `Customer ${node.id}`,
+          status: (statusStr === "active" ? "active" : "disabled") as "active" | "disabled",
+          integration_id: integration.id,
+          metadata: {
+            manager: node.manager,
+            manager_customer_id: loginCustomerId,
+            parent_customer_id: node.parent_customer_id,
+            enabled: !node.manager && node.status === "ENABLED" && !node.hidden,
+            sync_status: "ok",
+            level: node.level,
+            hidden: node.hidden,
+            google_status: node.status,
+          },
+        };
+
+        const { data: existing } = await supabase
+          .from("accounts").select("id")
+          .eq("workspace_id", wsId)
+          .eq("external_account_id", String(node.id))
+          .eq("provider", "google_ads")
+          .maybeSingle();
+
+        if (existing) {
+          await supabase.from("accounts").update(accountData).eq("id", existing.id);
+        } else {
+          await supabase.from("accounts").insert(accountData);
+        }
+        upsertedCount++;
+      }
+      result.persisted = { upserted: upsertedCount };
     }
 
     return json({ success: true, ...result });
