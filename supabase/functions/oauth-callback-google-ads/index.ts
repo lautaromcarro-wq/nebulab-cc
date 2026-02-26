@@ -197,8 +197,9 @@ async function discoverMccClients(
 
   try {
     // Step 1: Sanity check — listAccessibleCustomers
+    const API_VERSION = "v22";
     const listRes = await fetch(
-      "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+      `https://googleads.googleapis.com/${API_VERSION}/customers:listAccessibleCustomers`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -217,6 +218,7 @@ async function discoverMccClients(
     }
 
     // Step 2: GAQL query on MCC to find child accounts
+    const API_VERSION = "v22";
     const gaqlQuery = `
       SELECT
         customer_client.client_customer,
@@ -232,7 +234,7 @@ async function discoverMccClients(
     `.trim();
 
     const searchRes = await fetch(
-      `https://googleads.googleapis.com/v18/customers/${loginCustomerId}/googleAds:searchStream`,
+      `https://googleads.googleapis.com/${API_VERSION}/customers/${loginCustomerId}/googleAds:searchStream`,
       {
         method: "POST",
         headers: {
