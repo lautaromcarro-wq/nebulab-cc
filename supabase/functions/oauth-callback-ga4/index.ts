@@ -191,7 +191,6 @@ async function discoverProperties(
         metadata: {
           ga4_account_name: prop.accountName,
           property_type: "ga4_property",
-          enabled: false, // disabled by default until user selects
         },
       };
 

@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.debug-env-ga4]
 verify_jwt = false
+
+[functions.debug-ga4-discovery]
+verify_jwt = false
