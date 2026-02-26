@@ -9,6 +9,12 @@ verify_jwt = false
 [functions.oauth-callback-ga4]
 verify_jwt = false
 
+[functions.sync-ga4-daily]
+verify_jwt = false
+
+[functions.sync-ga4-by-source]
+verify_jwt = false
+
 [functions.meta-diagnostics]
 verify_jwt = false
 
