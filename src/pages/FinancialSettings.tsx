@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useFinancialSettings, type FinancialSettings } from "@/hooks/useFinancialSettings";
+import { useClient } from "@/contexts/ClientContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ const fields: Array<{ key: keyof FinancialSettings; label: string; description: 
 
 const FinancialSettingsPage = () => {
   const { settings, isLoading, save, isSaving } = useFinancialSettings();
+  const { selectedClient } = useClient();
   const [form, setForm] = useState<FinancialSettings>(settings);
 
   useEffect(() => {
@@ -39,7 +41,9 @@ const FinancialSettingsPage = () => {
     <div className="max-w-2xl">
       <h1 className="text-2xl font-bold tracking-tight mb-1">Financial Settings</h1>
       <p className="text-muted-foreground text-sm mb-6">
-        Configurá los porcentajes de costos para calcular el margen de contribución real.
+        {selectedClient
+          ? `Configuración financiera para ${selectedClient.name}`
+          : "Configuración financiera global del workspace (sin client seleccionado)"}
       </p>
 
       <Card>
