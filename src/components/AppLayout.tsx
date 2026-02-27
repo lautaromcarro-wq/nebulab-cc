@@ -11,6 +11,7 @@ import {
   LogOut,
   ShieldAlert,
   Users,
+  Activity,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -26,6 +27,7 @@ const navItems = [
   { to: "/creatives", label: "Creativos", icon: Palette },
   { to: "/finance", label: "Finance", icon: DollarSign },
   { to: "/changelog", label: "Bitácora", icon: ClipboardList },
+  { to: "/changelog/dashboard", label: "Dashboard Cambios", icon: Activity },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/connections", label: "Connections", icon: Plug },
   { to: "/settings/segments", label: "Segments", icon: Settings },
