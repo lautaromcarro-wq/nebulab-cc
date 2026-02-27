@@ -409,7 +409,7 @@ export default function Connections() {
         body: {
           workspace_id: currentWorkspace.id,
           provider: historicalProvider,
-          start_date: "2026-01-01",
+          start_date: "2025-01-01",
           end_date: new Date().toISOString().split("T")[0],
           chunk_size_days: 30,
         },
@@ -1277,7 +1277,7 @@ export default function Connections() {
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
             <div className="space-y-1">
               <CardTitle className="flex items-center gap-2 text-lg"><Database className="h-5 w-5" />Backfill Histórico</CardTitle>
-              <CardDescription>Cargá datos desde 01-01-2026 hasta hoy. Divide en chunks de 30 días por seguridad.</CardDescription>
+              <CardDescription>Cargá datos desde 01-01-2025 hasta hoy. Divide en chunks de 30 días por seguridad.</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1298,7 +1298,7 @@ export default function Connections() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground font-medium">Rango</label>
-                <p className="text-sm font-mono">2026-01-01 → hoy</p>
+                <p className="text-sm font-mono">2025-01-01 → hoy</p>
               </div>
               <div className="self-end">
                 <Button onClick={handleStartHistoricalBackfill} disabled={historicalRunning}>
