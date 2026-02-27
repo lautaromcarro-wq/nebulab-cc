@@ -1,10 +1,10 @@
 import { useScorecard, type SegmentScorecard } from "@/hooks/useScorecard";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useWorkspaceHealth } from "@/hooks/useWorkspaceHealth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DollarSign,
@@ -15,24 +15,19 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
-  AlertTriangle,
-  Heart,
   Percent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-function fmt(n: number, decimals = 0): string {
-  return n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-}
-
-function fmtCurrency(n: number, currency = "USD"): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
-}
+import SectionHeader from "@/components/SectionHeader";
+import StatusStrip from "@/components/StatusStrip";
+import StatCard from "@/components/StatCard";
+import EmptyState from "@/components/EmptyState";
+import { fmt, fmtCurrency, fmtCompact } from "@/components/formatters";
 
 const pacingConfig = {
-  overpacing: { label: "Overpacing", variant: "destructive" as const, icon: ArrowUpRight, className: "bg-destructive/10 text-destructive border-destructive/20" },
-  on_track: { label: "On Track", variant: "default" as const, icon: Minus, className: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" },
-  underpacing: { label: "Underpacing", variant: "secondary" as const, icon: ArrowDownRight, className: "bg-amber-500/10 text-amber-700 border-amber-500/20" },
+  overpacing: { label: "Overpacing", icon: ArrowUpRight, className: "bg-destructive/10 text-destructive border-destructive/20" },
+  on_track: { label: "On Track", icon: Minus, className: "bg-success/10 text-success border-success/20" },
+  underpacing: { label: "Underpacing", icon: ArrowDownRight, className: "bg-warning/10 text-warning border-warning/20" },
 };
 
 const Home = () => {
@@ -46,11 +41,10 @@ const Home = () => {
 
   if (loading) {
     return (
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight mb-1">Scorecard</h1>
-        <p className="text-muted-foreground text-sm mb-6">Vista global de performance y pacing por Segment.</p>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-          {Array.from({ length: 5 }).map((_, i) => (
+      <div className="space-y-8 animate-fade-in">
+        <SectionHeader badge="Dashboard" title="Scorecard" subtitle="Vista global de performance y pacing" />
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
         </div>
@@ -65,158 +59,114 @@ const Home = () => {
 
   if (segments.length === 0) {
     return (
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight mb-1">Scorecard</h1>
-        <p className="text-muted-foreground text-sm">Vista global de performance y pacing por Segment.</p>
-        <div className="mt-8 rounded-lg border border-dashed p-12 text-center text-muted-foreground text-sm">
-          Scorecard en construcción — conectá integraciones y creá Segments para ver datos.
-        </div>
+      <div className="space-y-8 animate-fade-in">
+        <SectionHeader badge="Dashboard" title="Scorecard" subtitle="Vista global de performance y pacing" />
+        <EmptyState
+          title="Sin datos de Segments"
+          description="Conectá integraciones y creá Segments para visualizar el Scorecard."
+        />
       </div>
     );
   }
 
+  // Determine status for hero KPIs
+  const marginStatus = totals && totals.contributionMargin < 0 ? "destructive" : "success";
+  const roasStatus = totals && totals.roasGa4 < 1 ? "warning" : "success";
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold tracking-tight mb-1">Scorecard</h1>
-      <p className="text-muted-foreground text-sm mb-4">Vista global de performance y pacing por Segment.</p>
+    <div className="space-y-8 animate-fade-in">
+      {/* Header */}
+      <SectionHeader badge="Dashboard" title="Scorecard" subtitle="Vista global de performance y pacing por Segment" />
 
-      {/* Health Banner */}
-      {health && health.status !== "healthy" && (
-        <HealthBanner health={health} />
-      )}
+      {/* Status Strip */}
+      {health && <StatusStrip health={health} />}
 
-      {/* Summary KPIs */}
+      {/* Hero KPIs */}
       {totals && (
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-3 mb-8">
-          <KpiCard icon={DollarSign} label="Spend MTD" value={fmtCurrency(totals.totalSpend)} />
-          <KpiCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} />
-          <KpiCard icon={TrendingUp} label="ROAS GA4" value={`${fmt(totals.roasGa4, 2)}x`} />
-          <KpiCard icon={TrendingUp} label="Blended ROAS" value={`${fmt(totals.blendedRoas, 2)}x`} subtitle="Estimación" />
-          <KpiCard
-            icon={DollarSign}
-            label="Contribution"
-            value={fmtCurrency(totals.contributionMargin)}
-            className={totals.contributionMargin < 0 ? "border-destructive/30" : ""}
-          />
-          <KpiCard icon={Percent} label="Margin %" value={`${fmt(totals.marginPercent, 1)}%`} />
-          <KpiCard icon={Eye} label="Impressions" value={fmt(totals.totalImpressions)} />
-          <KpiCard icon={MousePointerClick} label="CTR" value={`${fmt(totals.ctr, 2)}%`} />
-          <KpiCard icon={ShoppingCart} label="Purchases" value={fmt(totals.totalPurchases)} />
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StatCard
+              icon={DollarSign}
+              label="Spend MTD"
+              value={fmtCurrency(totals.totalSpend)}
+              status="primary"
+              hero
+            />
+            <StatCard
+              icon={TrendingUp}
+              label="ROAS GA4"
+              value={`${fmt(totals.roasGa4, 2)}x`}
+              tooltip="Revenue GA4 / Spend total. No blended."
+              status={roasStatus}
+              hero
+            />
+            <StatCard
+              icon={DollarSign}
+              label="Contribution MTD"
+              value={fmtCurrency(totals.contributionMargin)}
+              subtitle={`Margin ${fmt(totals.marginPercent, 1)}%`}
+              status={marginStatus as any}
+              hero
+            />
+          </div>
+
+          {/* Secondary KPIs */}
+          <div>
+            <SectionHeader title="Métricas Secundarias" />
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-3">
+              <StatCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} status="neutral" />
+              <StatCard icon={TrendingUp} label="Blended ROAS" value={`${fmt(totals.blendedRoas, 2)}x`} subtitle="Estimación" status="neutral" tooltip="Promedio ponderado plataforma + GA4 (alpha 0.5)" />
+              <StatCard icon={Percent} label="Margin %" value={`${fmt(totals.marginPercent, 1)}%`} status="neutral" />
+              <StatCard icon={Eye} label="Impressions" value={fmtCompact(totals.totalImpressions)} status="neutral" />
+              <StatCard icon={MousePointerClick} label="CTR" value={`${fmt(totals.ctr, 2)}%`} status="neutral" />
+              <StatCard icon={ShoppingCart} label="Purchases" value={fmt(totals.totalPurchases)} status="neutral" />
+            </div>
+          </div>
+        </>
       )}
 
-      {/* Health Score Card (when healthy, show compact) */}
-      {health && (
-        <div className="mb-6">
-          <HealthScoreCard health={health} />
+      {/* Segment Cards */}
+      <div>
+        <SectionHeader badge="Segments" title="Detalle por Segment" subtitle={`${cards.length} segmento(s) activo(s)`} />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mt-4">
+          {cards.map((card) => (
+            <SegmentCard key={card.segmentId} card={card} workspaceCurrency={currentWorkspace?.currency ?? "USD"} />
+          ))}
         </div>
-      )}
-
-      {/* Segment cards */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {cards.map((card) => (
-          <SegmentCard key={card.segmentId} card={card} workspaceCurrency={currentWorkspace?.currency ?? "USD"} />
-        ))}
       </div>
     </div>
   );
 };
-
-function HealthBanner({ health }: { health: { status: string; penalties: Array<{ rule: string; detail: string }> } }) {
-  const isCritical = health.status === "critical";
-  return (
-    <div className={cn(
-      "rounded-lg border p-4 mb-4 flex items-start gap-3",
-      isCritical ? "bg-destructive/5 border-destructive/30" : "bg-amber-500/5 border-amber-500/30"
-    )}>
-      <AlertTriangle className={cn("h-5 w-5 mt-0.5 shrink-0", isCritical ? "text-destructive" : "text-amber-600")} />
-      <div className="min-w-0">
-        <p className={cn("text-sm font-semibold", isCritical ? "text-destructive" : "text-amber-700")}>
-          {isCritical ? "Estado Crítico" : "Requiere Atención"}
-        </p>
-        <ul className="mt-1 space-y-0.5">
-          {health.penalties.slice(0, 3).map((p, i) => (
-            <li key={i} className="text-xs text-muted-foreground">{p.detail}</li>
-          ))}
-          {health.penalties.length > 3 && (
-            <li className="text-xs text-muted-foreground">+{health.penalties.length - 3} más</li>
-          )}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-function HealthScoreCard({ health }: { health: { score: number; status: string; penalties: Array<{ rule: string; points: number; detail: string }> } }) {
-  const color = health.status === "healthy" ? "text-emerald-600" : health.status === "attention" ? "text-amber-600" : "text-destructive";
-  const bg = health.status === "healthy" ? "bg-emerald-500" : health.status === "attention" ? "bg-amber-500" : "bg-destructive";
-
-  return (
-    <Card className="shadow-sm">
-      <CardContent className="p-4 flex items-center gap-4">
-        <div className="flex items-center gap-3 shrink-0">
-          <Heart className={cn("h-5 w-5", color)} />
-          <div>
-            <p className="text-xs text-muted-foreground">Health Score</p>
-            <p className={cn("text-2xl font-bold tracking-tight", color)}>{health.score}</p>
-          </div>
-        </div>
-        <div className="flex-1 min-w-0">
-          <Progress value={health.score} className="h-2" />
-        </div>
-        <Badge variant="outline" className={cn("text-xs shrink-0",
-          health.status === "healthy" ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20" :
-          health.status === "attention" ? "bg-amber-500/10 text-amber-700 border-amber-500/20" :
-          "bg-destructive/10 text-destructive border-destructive/20"
-        )}>
-          {health.status === "healthy" ? "Saludable" : health.status === "attention" ? "Atención" : "Crítico"}
-        </Badge>
-      </CardContent>
-    </Card>
-  );
-}
-
-function KpiCard({ icon: Icon, label, value, subtitle, className }: { icon: React.ElementType; label: string; value: string; subtitle?: string; className?: string }) {
-  return (
-    <Card className={cn("shadow-sm", className)}>
-      <CardContent className="p-4 flex items-center gap-3">
-        <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-          <Icon className="h-4.5 w-4.5 text-primary" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">{label}</p>
-          <p className="text-lg font-semibold tracking-tight leading-tight">{value}</p>
-          {subtitle && <p className="text-[10px] text-muted-foreground">{subtitle}</p>}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 function SegmentCard({ card, workspaceCurrency }: { card: SegmentScorecard; workspaceCurrency: string }) {
   const currencyMismatch = card.currency !== workspaceCurrency;
   const pacing = pacingConfig[card.pacingStatus];
   const PacingIcon = pacing.icon;
 
+  // Determine segment health via pacing
+  const borderStatus =
+    card.pacingStatus === "on_track" ? "border-l-success" :
+    card.pacingStatus === "overpacing" ? "border-l-destructive" : "border-l-warning";
+
   return (
-    <Card className="shadow-sm">
+    <Card className={cn("shadow-sm border-l-4", borderStatus)}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base font-semibold">{card.segmentName}</CardTitle>
+          <CardTitle className="text-sm font-bold uppercase tracking-wide">{card.segmentName}</CardTitle>
           <div className="flex items-center gap-1.5">
             {currencyMismatch && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/20">
+                  <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning border-warning/20">
                     ⚠ {card.currency}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  Moneda del segmento ({card.currency}) distinta a la del workspace ({workspaceCurrency}). No se convierte automáticamente.
+                  Moneda del segmento ({card.currency}) distinta a la del workspace ({workspaceCurrency}).
                 </TooltipContent>
               </Tooltip>
             )}
-            <Badge variant="outline" className={cn("text-[10px] font-medium gap-1", pacing.className)}>
+            <Badge variant="outline" className={cn("text-[10px] font-bold uppercase tracking-wide gap-1 border-0", pacing.className)}>
               <PacingIcon className="h-3 w-3" />
               {pacing.label}
             </Badge>
@@ -227,26 +177,23 @@ function SegmentCard({ card, workspaceCurrency }: { card: SegmentScorecard; work
         {/* Spend + Budget bar */}
         <div>
           <div className="flex items-baseline justify-between mb-1.5">
-            <span className="text-xl font-bold tracking-tight">{fmtCurrency(card.totalSpend, card.currency)}</span>
+            <span className="text-2xl font-bold tracking-tight">{fmtCurrency(card.totalSpend, card.currency)}</span>
             {card.monthlyBudget > 0 && (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground font-medium">
                 / {fmtCurrency(card.monthlyBudget, card.currency)}
               </span>
             )}
           </div>
           {card.monthlyBudget > 0 && (
-            <Progress
-              value={Math.min(card.budgetUsedPercent, 100)}
-              className="h-1.5"
-            />
+            <Progress value={Math.min(card.budgetUsedPercent, 100)} className="h-1.5" />
           )}
         </div>
 
         {/* Metrics grid */}
         <div className="grid grid-cols-3 gap-3 pt-1">
           <MetricCell label="ROAS" value={`${fmt(card.roas, 2)}x`} />
-          <MetricCell label="EOM proj." value={fmtCurrency(card.projectedEom, card.currency)} />
-          <MetricCell label="Daily avg" value={fmtCurrency(card.dailyAvgSpend, card.currency)} />
+          <MetricCell label="EOM Proj." value={fmtCurrency(card.projectedEom, card.currency)} />
+          <MetricCell label="Daily Avg" value={fmtCurrency(card.dailyAvgSpend, card.currency)} />
           <MetricCell label="CTR" value={`${fmt(card.ctr, 2)}%`} />
           <MetricCell label="CPC" value={fmtCurrency(card.cpc, card.currency)} />
           <MetricCell label="Purchases" value={fmt(card.purchases)} />
@@ -256,14 +203,14 @@ function SegmentCard({ card, workspaceCurrency }: { card: SegmentScorecard; work
         {card.totalSpend > 0 && (
           <div className="flex gap-2 pt-1">
             {card.spendMeta > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 font-medium">
+              <Badge variant="secondary" className="text-[10px] font-medium bg-info/10 text-info border-0">
                 Meta {fmt((card.spendMeta / card.totalSpend) * 100, 0)}%
-              </span>
+              </Badge>
             )}
             {card.spendGoogle > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-700 font-medium">
+              <Badge variant="secondary" className="text-[10px] font-medium bg-success/10 text-success border-0">
                 Google {fmt((card.spendGoogle / card.totalSpend) * 100, 0)}%
-              </span>
+              </Badge>
             )}
           </div>
         )}
@@ -275,8 +222,8 @@ function SegmentCard({ card, workspaceCurrency }: { card: SegmentScorecard; work
 function MetricCell({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
-      <p className="text-sm font-semibold">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-sm font-bold">{value}</p>
     </div>
   );
 }
