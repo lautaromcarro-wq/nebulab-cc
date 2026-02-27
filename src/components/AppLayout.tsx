@@ -94,14 +94,16 @@ const AppLayout = () => {
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b bg-card">
+        <header className="h-12 shrink-0 flex items-center justify-between px-6 bg-gradient-to-r from-primary to-accent border-b border-primary/20">
           <div />
           <SegmentFilter />
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          <Outlet />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto p-6">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
