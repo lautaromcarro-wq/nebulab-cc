@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
         await supabase.from("integrations").update({ token_expires_at: newExpiry }).eq("id", integration.id);
       }
 
-      // Get enabled GA4 properties
+      // Get enabled GA4 properties with their account_id from accounts table
       const { data: settings } = await supabase
         .from("workspace_account_settings").select("external_id")
         .eq("workspace_id", wsId).eq("provider", "ga4").eq("is_enabled", true);
@@ -125,6 +125,20 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Build a map of external_account_id -> account.id (uuid)
+      const externalIds = settings.map((s: any) => s.external_id);
+      const { data: accountRows } = await supabase
+        .from("accounts")
+        .select("id, external_account_id")
+        .eq("workspace_id", wsId)
+        .eq("provider", "ga4")
+        .in("external_account_id", externalIds);
+
+      const accountMap = new Map<string, string>();
+      for (const a of accountRows ?? []) {
+        accountMap.set(a.external_account_id, a.id);
+      }
+
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - daysBack);
@@ -137,9 +151,15 @@ Deno.serve(async (req) => {
         if (Date.now() - startTime > LIMITS.MAX_RUNTIME_MS) break;
 
         const propertyId = setting.external_id;
+        const accountId = accountMap.get(propertyId);
+
+        if (!accountId) {
+          console.warn(`[sync-ga4-daily] No account row for property ${propertyId}, skipping`);
+          errors.push(`Property ${propertyId}: no matching account row`);
+          continue;
+        }
 
         try {
-          // ── GA4 Data API: RunReport for daily aggregated revenue ──
           const reportRes = await fetch(
             `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
             {
@@ -169,7 +189,7 @@ Deno.serve(async (req) => {
           const reportData = await reportRes.json();
           const rows = reportData.rows || [];
 
-          console.log(`[sync-ga4-daily] Property ${propertyId}: ${rows.length} rows`);
+          console.log(`[sync-ga4-daily] Property ${propertyId} (account ${accountId}): ${rows.length} rows`);
 
           if (rows.length === 0) {
             await supabase.from("health_events").insert({
@@ -180,7 +200,7 @@ Deno.serve(async (req) => {
           }
 
           for (const row of rows) {
-            const dateStr = row.dimensionValues?.[0]?.value; // YYYYMMDD
+            const dateStr = row.dimensionValues?.[0]?.value;
             if (!dateStr) continue;
             const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
             const revenue = parseFloat(row.metricValues?.[0]?.value || "0");
@@ -188,10 +208,11 @@ Deno.serve(async (req) => {
 
             await supabase.from("ga4_daily").upsert({
               workspace_id: wsId,
+              account_id: accountId,
               date: formattedDate,
               revenue,
               purchases,
-            }, { onConflict: "workspace_id,date" });
+            }, { onConflict: "workspace_id,account_id,date" });
             wsUpserted++;
           }
         } catch (err) {

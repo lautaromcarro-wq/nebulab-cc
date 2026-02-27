@@ -82,6 +82,20 @@ Deno.serve(async (req) => {
 
       if (!settings?.length) continue;
 
+      // Build account map: external_id -> account uuid
+      const externalIds = settings.map((s: any) => s.external_id);
+      const { data: accountRows } = await supabase
+        .from("accounts")
+        .select("id, external_account_id")
+        .eq("workspace_id", wsId)
+        .eq("provider", "ga4")
+        .in("external_account_id", externalIds);
+
+      const accountMap = new Map<string, string>();
+      for (const a of accountRows ?? []) {
+        accountMap.set(a.external_account_id, a.id);
+      }
+
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - daysBack);
@@ -91,6 +105,13 @@ Deno.serve(async (req) => {
       for (const setting of settings) {
         if (Date.now() - startTime > LIMITS.MAX_RUNTIME_MS) break;
         const propertyId = setting.external_id;
+        const accountId = accountMap.get(propertyId);
+
+        if (!accountId) {
+          console.warn(`[sync-ga4-by-source] No account row for property ${propertyId}, skipping`);
+          errors.push(`Property ${propertyId}: no matching account row`);
+          continue;
+        }
 
         try {
           const reportRes = await fetch(
@@ -126,7 +147,7 @@ Deno.serve(async (req) => {
           const reportData = await reportRes.json();
           const rows = reportData.rows || [];
 
-          console.log(`[sync-ga4-by-source] Property ${propertyId}: ${rows.length} rows`);
+          console.log(`[sync-ga4-by-source] Property ${propertyId} (account ${accountId}): ${rows.length} rows`);
 
           for (const row of rows) {
             const dateStr = row.dimensionValues?.[0]?.value;
@@ -139,12 +160,13 @@ Deno.serve(async (req) => {
 
             await supabase.from("ga4_by_source").upsert({
               workspace_id: wsId,
+              account_id: accountId,
               date: formattedDate,
               source,
               medium,
               revenue,
               purchases,
-            }, { onConflict: "workspace_id,date,source,medium" });
+            }, { onConflict: "workspace_id,account_id,date,source,medium" });
             totalUpserted++;
           }
         } catch (err) {
