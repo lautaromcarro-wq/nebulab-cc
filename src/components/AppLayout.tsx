@@ -10,15 +10,18 @@ import {
   Settings,
   LogOut,
   ShieldAlert,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
+import ClientSwitcher from "@/components/ClientSwitcher";
 import SegmentFilter from "@/components/SegmentFilter";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/", label: "Home", icon: LayoutDashboard },
+  { to: "/clients", label: "Client Hub", icon: Users },
   { to: "/performance", label: "Performance", icon: BarChart3 },
   { to: "/creatives", label: "Creativos", icon: Palette },
   { to: "/finance", label: "Finance", icon: DollarSign },
@@ -45,12 +48,13 @@ const AppLayout = () => {
       <aside className="w-56 shrink-0 flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
         <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
           <span className="font-bold text-sm text-sidebar-primary-foreground tracking-tight">
-            AdCC
+            Nebulab OS
           </span>
         </div>
 
-        <div className="px-3 py-3 border-b border-sidebar-border">
+        <div className="px-3 py-2 border-b border-sidebar-border space-y-2">
           <WorkspaceSwitcher />
+          <ClientSwitcher />
         </div>
 
         <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
+import { ClientProvider } from "@/contexts/ClientContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
 import Auth from "@/pages/Auth";
@@ -14,6 +15,7 @@ import Placeholder from "@/pages/Placeholder";
 import Connections from "@/pages/Connections";
 import AdminOps from "@/pages/AdminOps";
 import FinancialSettings from "@/pages/FinancialSettings";
+import ClientHub from "@/pages/ClientHub";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,12 +33,15 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <WorkspaceProvider>
-                    <AppLayout />
+                    <ClientProvider>
+                      <AppLayout />
+                    </ClientProvider>
                   </WorkspaceProvider>
                 </ProtectedRoute>
               }
             >
               <Route path="/" element={<Home />} />
+              <Route path="/clients" element={<ClientHub />} />
               <Route path="/performance" element={<Placeholder title="Performance Overview" />} />
               <Route path="/creatives" element={<Placeholder title="Creative Performance" />} />
               <Route path="/finance" element={<Placeholder title="Finance & Unit Economics" />} />

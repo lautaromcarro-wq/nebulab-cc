@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { useClient } from "@/contexts/ClientContext";
 import { useFinancialSettings } from "@/hooks/useFinancialSettings";
 import { format, getDaysInMonth, differenceInDays } from "date-fns";
 
@@ -43,7 +44,6 @@ export interface ScorecardTotals {
   revenueGa4: number;
   spendMeta: number;
   spendGoogle: number;
-  // Contribution margin
   contributionMargin: number;
   marginPercent: number;
 }
@@ -55,15 +55,25 @@ export function useScorecard() {
     selectedSegmentId,
     dateRange,
   } = useWorkspace();
+  const { selectedClient } = useClient();
   const { settings: fin } = useFinancialSettings();
 
   const fromStr = format(dateRange.from, "yyyy-MM-dd");
   const toStr = format(dateRange.to, "yyyy-MM-dd");
+  const clientId = selectedClient?.id ?? null;
 
   return useQuery({
-    queryKey: ["scorecard", currentWorkspace?.id, selectedSegmentId, fromStr, toStr],
+    queryKey: ["scorecard", currentWorkspace?.id, clientId, selectedSegmentId, fromStr, toStr],
     queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals }> => {
       if (!currentWorkspace) return { cards: [], totals: emptyTotals() };
+
+      // Filter segments by client if selected
+      const filteredSegments = segments.filter((s) => {
+        if (selectedSegmentId && s.id !== selectedSegmentId) return false;
+        if (clientId && (s as any).client_id && (s as any).client_id !== clientId) return false;
+        if (clientId && !(s as any).client_id) return false; // skip unassigned segments when client is selected
+        return true;
+      });
 
       // Fetch segment_daily and workspace_revenue_daily in parallel
       let segQuery = supabase
@@ -76,23 +86,28 @@ export function useScorecard() {
       if (selectedSegmentId) {
         segQuery = segQuery.eq("segment_id", selectedSegmentId);
       }
+      if (clientId) {
+        segQuery = segQuery.eq("client_id", clientId);
+      }
 
-      const [segResult, revResult] = await Promise.all([
-        segQuery,
-        supabase
-          .from("workspace_revenue_daily")
-          .select("*")
-          .eq("workspace_id", currentWorkspace.id)
-          .gte("date", fromStr)
-          .lte("date", toStr),
-      ]);
+      let revQuery = supabase
+        .from("workspace_revenue_daily")
+        .select("*")
+        .eq("workspace_id", currentWorkspace.id)
+        .gte("date", fromStr)
+        .lte("date", toStr);
+
+      if (clientId) {
+        revQuery = revQuery.eq("client_id", clientId);
+      }
+
+      const [segResult, revResult] = await Promise.all([segQuery, revQuery]);
 
       if (segResult.error) throw segResult.error;
 
       const rows = segResult.data ?? [];
       const revenueRows = revResult.data ?? [];
 
-      // Workspace-level revenue from workspace_revenue_daily
       const wsRevenueGa4 = revenueRows.reduce((s, r) => s + (Number(r.total_revenue) || 0), 0);
       const wsPurchases = revenueRows.reduce((s, r) => s + (Number(r.total_purchases) || 0), 0);
 
@@ -106,10 +121,6 @@ export function useScorecard() {
 
       const daysInRange = differenceInDays(dateRange.to, dateRange.from) + 1;
       const daysInMonth = getDaysInMonth(dateRange.from);
-
-      const filteredSegments = selectedSegmentId
-        ? segments.filter((s) => s.id === selectedSegmentId)
-        : segments;
 
       const cards: SegmentScorecard[] = filteredSegments.map((seg) => {
         const segRows = grouped.get(seg.id) ?? [];
@@ -177,9 +188,7 @@ export function useScorecard() {
       const totalRevPlatform = cards.reduce((s, c) => s + c.revenuePlatform, 0);
       const totalRevGa4 = cards.reduce((s, c) => s + c.revenueGa4, 0);
 
-      // Use workspace_revenue_daily as fallback if segments have no GA4 revenue
       const effectiveRevGa4 = totalRevGa4 > 0 ? totalRevGa4 : wsRevenueGa4;
-
       const effectiveRev = totalRevenue > 0 ? totalRevenue : wsRevenueGa4;
 
       // Contribution margin calculation

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useClient } from "@/contexts/ClientContext";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 
 export interface FinancialSettings {
@@ -19,18 +20,36 @@ const defaultSettings: FinancialSettings = {
 };
 
 export function useFinancialSettings() {
+  const { selectedClient } = useClient();
   const { currentWorkspace } = useWorkspace();
   const queryClient = useQueryClient();
+  const clientId = selectedClient?.id;
   const wsId = currentWorkspace?.id;
 
   const query = useQuery({
-    queryKey: ["financial-settings", wsId],
+    queryKey: ["financial-settings", clientId],
     queryFn: async (): Promise<FinancialSettings> => {
-      if (!wsId) return defaultSettings;
+      if (!clientId) {
+        // Fallback to workspace-level settings if no client selected
+        if (!wsId) return defaultSettings;
+        const { data } = await supabase
+          .from("workspace_financial_settings")
+          .select("*")
+          .eq("workspace_id", wsId)
+          .maybeSingle();
+        if (!data) return defaultSettings;
+        return {
+          avg_cogs_percent: Number(data.avg_cogs_percent) || 0,
+          shipping_percent: Number(data.shipping_percent) || 0,
+          payment_fee_percent: Number(data.payment_fee_percent) || 0,
+          refund_percent: Number(data.refund_percent) || 0,
+          iva_percent: Number(data.iva_percent) || 0,
+        };
+      }
       const { data } = await supabase
-        .from("workspace_financial_settings")
+        .from("client_financial_settings")
         .select("*")
-        .eq("workspace_id", wsId)
+        .eq("client_id", clientId)
         .maybeSingle();
       if (!data) return defaultSettings;
       return {
@@ -41,23 +60,34 @@ export function useFinancialSettings() {
         iva_percent: Number(data.iva_percent) || 0,
       };
     },
-    enabled: !!wsId,
+    enabled: !!(clientId || wsId),
   });
 
   const mutation = useMutation({
     mutationFn: async (settings: FinancialSettings) => {
-      if (!wsId) throw new Error("No workspace");
-      const { error } = await supabase
-        .from("workspace_financial_settings")
-        .upsert({
-          workspace_id: wsId,
-          ...settings,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "workspace_id" });
-      if (error) throw error;
+      if (clientId && wsId) {
+        const { error } = await supabase
+          .from("client_financial_settings")
+          .upsert({
+            client_id: clientId,
+            workspace_id: wsId,
+            ...settings,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "client_id" });
+        if (error) throw error;
+      } else if (wsId) {
+        const { error } = await supabase
+          .from("workspace_financial_settings")
+          .upsert({
+            workspace_id: wsId,
+            ...settings,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "workspace_id" });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["financial-settings", wsId] });
+      queryClient.invalidateQueries({ queryKey: ["financial-settings", clientId] });
       queryClient.invalidateQueries({ queryKey: ["scorecard"] });
     },
   });
