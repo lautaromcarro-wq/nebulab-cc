@@ -12,6 +12,7 @@ import Auth from "@/pages/Auth";
 import Home from "@/pages/Home";
 import SegmentsSettings from "@/pages/SegmentsSettings";
 import Placeholder from "@/pages/Placeholder";
+import Performance from "@/pages/Performance";
 import Connections from "@/pages/Connections";
 import AdminOps from "@/pages/AdminOps";
 import FinancialSettings from "@/pages/FinancialSettings";
@@ -42,7 +43,7 @@ const App = () => (
             >
               <Route path="/" element={<Home />} />
               <Route path="/clients" element={<ClientHub />} />
-              <Route path="/performance" element={<Placeholder title="Performance Overview" />} />
+              <Route path="/performance" element={<Performance />} />
               <Route path="/creatives" element={<Placeholder title="Creative Performance" />} />
               <Route path="/finance" element={<Placeholder title="Finance & Unit Economics" />} />
               <Route path="/changelog" element={<Placeholder title="Bitácora" />} />
