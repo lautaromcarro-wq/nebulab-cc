@@ -229,20 +229,27 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Run aggregate-revenue after all chunks
-    try {
-      await fetch(`${supabaseUrl}/functions/v1/aggregate-revenue`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          workspace_id,
-          days_back: daysBetween(startDt, endDt),
-        }),
-      });
-    } catch { /* non-critical */ }
+    // Post-backfill recompute: aggregate revenue, segments, health
+    const recomputeFns = [
+      { name: "aggregate-revenue", body: { workspace_id, days_back: daysBetween(startDt, endDt) } },
+      { name: "compute-campaign-segment-map", body: { workspace_id } },
+      { name: "compute-segment-daily", body: { workspace_id, days_back: daysBetween(startDt, endDt) } },
+      { name: "compute-workspace-health", body: { workspace_id } },
+    ];
+
+    for (const fn of recomputeFns) {
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/${fn.name}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify(fn.body),
+        });
+        console.log(`[backfill] Recompute ${fn.name} done`);
+      } catch { /* non-critical */ }
+    }
 
     const finalStatus = errors.length > 0 ? (totalItems > 0 ? "completed" : "failed") : "completed";
 
