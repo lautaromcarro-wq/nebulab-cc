@@ -2048,6 +2048,7 @@ export type Database = {
           client_id: string | null
           created_at: string
           entity_level: Database["public"]["Enums"]["segment_rule_entity_level"]
+          group_id: string
           id: string
           is_inclusive: boolean
           platform: Database["public"]["Enums"]["segment_rule_platform"]
@@ -2061,6 +2062,7 @@ export type Database = {
           client_id?: string | null
           created_at?: string
           entity_level?: Database["public"]["Enums"]["segment_rule_entity_level"]
+          group_id?: string
           id?: string
           is_inclusive?: boolean
           platform?: Database["public"]["Enums"]["segment_rule_platform"]
@@ -2074,6 +2076,7 @@ export type Database = {
           client_id?: string | null
           created_at?: string
           entity_level?: Database["public"]["Enums"]["segment_rule_entity_level"]
+          group_id?: string
           id?: string
           is_inclusive?: boolean
           platform?: Database["public"]["Enums"]["segment_rule_platform"]

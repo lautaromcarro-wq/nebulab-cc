@@ -14,6 +14,7 @@ interface SegmentRule {
   rule_value: string;
   priority: number;
   is_inclusive: boolean;
+  group_id: string;
 }
 
 interface Campaign {
@@ -50,6 +51,38 @@ function matchesRule(campaignName: string, rule: SegmentRule): boolean {
   }
 }
 
+/**
+ * Group rules by group_id. Rules in the same group are ANDed.
+ * Different groups are ORed.
+ * Returns the list of matching rules if the campaign matches.
+ */
+function matchesCampaign(
+  campaignName: string,
+  campaignProvider: string,
+  rules: SegmentRule[]
+): SegmentRule[] {
+  // Group rules by group_id
+  const groups = new Map<string, SegmentRule[]>();
+  for (const r of rules) {
+    if (!r.is_inclusive) continue;
+    if (r.platform !== "any" && r.platform !== campaignProvider) continue;
+    const arr = groups.get(r.group_id) ?? [];
+    arr.push(r);
+    groups.set(r.group_id, arr);
+  }
+
+  // A group matches if ALL rules in it match (AND)
+  // Campaign matches if ANY group matches (OR)
+  const matchedRules: SegmentRule[] = [];
+  for (const [, groupRules] of groups) {
+    const allMatch = groupRules.every((r) => matchesRule(campaignName, r));
+    if (allMatch) {
+      matchedRules.push(...groupRules);
+    }
+  }
+  return matchedRules;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -83,10 +116,10 @@ Deno.serve(async (req) => {
     let totalUnassigned = 0;
 
     for (const ws of workspaces ?? []) {
-      // Fetch rules for this workspace
+      // Fetch rules for this workspace (now including group_id)
       const { data: rules, error: rulesErr } = await supabase
         .from("segment_rules")
-        .select("id, segment_id, platform, rule_type, rule_value, priority, is_inclusive")
+        .select("id, segment_id, platform, rule_type, rule_value, priority, is_inclusive, group_id")
         .eq("workspace_id", ws.id)
         .order("priority", { ascending: true });
       if (rulesErr) throw rulesErr;
@@ -115,15 +148,11 @@ Deno.serve(async (req) => {
       const now = new Date().toISOString();
 
       for (const camp of campaigns) {
-        // Find all matching rules for this campaign
-        const applicableRules = (rules ?? []).filter(
-          (r) =>
-            r.is_inclusive &&
-            (r.platform === "any" || r.platform === camp.provider)
-        );
-
-        const matched = applicableRules.filter((r) =>
-          matchesRule(camp.name, r as SegmentRule)
+        // Use group-based AND/OR matching
+        const matched = matchesCampaign(
+          camp.name,
+          camp.provider,
+          (rules ?? []) as SegmentRule[]
         );
 
         // Dedupe by segment_id
@@ -183,7 +212,7 @@ Deno.serve(async (req) => {
       // Log sync run
       await supabase.from("sync_runs").insert({
         workspace_id: ws.id,
-        provider: "meta", // generic, covers both
+        provider: "meta",
         job_name: "compute_campaign_segment_map",
         status: "success",
         items_upserted: mappings.length,

@@ -45,6 +45,22 @@ interface CampaignMapping {
   campaigns: { name: string; provider: string; external_id: string } | null;
 }
 
+// Group rules by group_id for display
+interface RuleGroup {
+  group_id: string;
+  rules: SegmentRule[];
+}
+
+function groupRules(rules: SegmentRule[]): RuleGroup[] {
+  const map = new Map<string, SegmentRule[]>();
+  for (const r of rules) {
+    const arr = map.get(r.group_id) ?? [];
+    arr.push(r);
+    map.set(r.group_id, arr);
+  }
+  return Array.from(map.entries()).map(([group_id, rules]) => ({ group_id, rules }));
+}
+
 const SegmentsSettings = () => {
   const { currentWorkspace, workspaceRole } = useWorkspace();
   const isAdmin = workspaceRole === "admin";
@@ -67,14 +83,14 @@ const SegmentsSettings = () => {
     rolling_avg_days: "3",
   });
 
-  const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
-  const [ruleSegmentId, setRuleSegmentId] = useState<string | null>(null);
-  const [ruleForm, setRuleForm] = useState({
-    platform: "any" as "meta" | "google_ads" | "any",
-    rule_type: "contains" as "contains" | "starts_with" | "regex" | "in_list",
-    rule_value: "",
-    priority: "100",
-  });
+  // Rule group creation
+  const [ruleGroupDialogOpen, setRuleGroupDialogOpen] = useState(false);
+  const [ruleGroupSegmentId, setRuleGroupSegmentId] = useState<string | null>(null);
+  const [ruleGroupConditions, setRuleGroupConditions] = useState<Array<{
+    platform: "meta" | "google_ads" | "any";
+    rule_type: "contains" | "starts_with" | "regex" | "in_list";
+    rule_value: string;
+  }>>([{ platform: "any", rule_type: "contains", rule_value: "" }]);
 
   const wsId = currentWorkspace?.id;
 
@@ -152,47 +168,67 @@ const SegmentsSettings = () => {
     fetchAll();
   };
 
-  // Rule CRUD
-  const openCreateRule = (segId: string) => {
-    setRuleSegmentId(segId);
-    setRuleForm({ platform: "any", rule_type: "contains", rule_value: "", priority: "100" });
-    setRuleDialogOpen(true);
+  // Rule Group CRUD
+  const openCreateRuleGroup = (segId: string) => {
+    setRuleGroupSegmentId(segId);
+    setRuleGroupConditions([{ platform: "any", rule_type: "contains", rule_value: "" }]);
+    setRuleGroupDialogOpen(true);
   };
 
-  const saveRule = async () => {
-    if (!wsId || !ruleSegmentId) return;
-    const { error } = await supabase.from("segment_rules").insert({
-      workspace_id: wsId,
-      segment_id: ruleSegmentId,
-      platform: ruleForm.platform,
-      rule_type: ruleForm.rule_type,
-      rule_value: ruleForm.rule_value,
-      priority: Number(ruleForm.priority),
-    });
-    if (error) return toast.error(error.message);
-    toast.success("Regla creada — recomputando mapping…");
-    setRuleDialogOpen(false);
+  const addCondition = () => {
+    setRuleGroupConditions([...ruleGroupConditions, { platform: "any", rule_type: "contains", rule_value: "" }]);
+  };
 
-    // Auto-recompute mapping after rule change
+  const removeCondition = (idx: number) => {
+    setRuleGroupConditions(ruleGroupConditions.filter((_, i) => i !== idx));
+  };
+
+  const updateCondition = (idx: number, field: string, value: string) => {
+    setRuleGroupConditions(ruleGroupConditions.map((c, i) => i === idx ? { ...c, [field]: value } : c));
+  };
+
+  const saveRuleGroup = async () => {
+    if (!wsId || !ruleGroupSegmentId) return;
+    const validConditions = ruleGroupConditions.filter((c) => c.rule_value.trim());
+    if (validConditions.length === 0) return toast.error("Agregá al menos una condición");
+
+    // Generate a shared group_id for all conditions (AND logic)
+    const groupId = crypto.randomUUID();
+
+    const rows = validConditions.map((c, i) => ({
+      workspace_id: wsId,
+      segment_id: ruleGroupSegmentId,
+      platform: c.platform,
+      rule_type: c.rule_type,
+      rule_value: c.rule_value.trim(),
+      priority: 100 + i,
+      group_id: groupId,
+    }));
+
+    const { error } = await supabase.from("segment_rules").insert(rows);
+    if (error) return toast.error(error.message);
+
+    const condCount = validConditions.length;
+    toast.success(`Grupo de ${condCount} condición(es) creado — recomputando mapping…`);
+    setRuleGroupDialogOpen(false);
+
+    // Auto-recompute
     try {
       const { data } = await supabase.functions.invoke("compute-campaign-segment-map", {
         body: { workspace_id: wsId },
       });
-      const assigned = data?.processed ?? 0;
-      const unassignedCount = data?.unassigned ?? 0;
-      toast.success(`Mapping actualizado: ${assigned} campañas procesadas, ${unassignedCount} sin asignar`);
+      toast.success(`Mapping actualizado: ${data?.processed ?? 0} campañas, ${data?.unassigned ?? 0} sin asignar`);
     } catch {
       toast.error("No se pudo recomputar el mapping automáticamente");
     }
     fetchAll();
   };
 
-  const deleteRule = async (id: string) => {
-    const { error } = await supabase.from("segment_rules").delete().eq("id", id);
+  const deleteRuleGroup = async (groupId: string) => {
+    const { error } = await supabase.from("segment_rules").delete().eq("group_id", groupId);
     if (error) return toast.error(error.message);
-    toast.success("Regla eliminada — recomputando mapping…");
+    toast.success("Grupo de reglas eliminado — recomputando mapping…");
 
-    // Auto-recompute mapping after rule deletion
     try {
       await supabase.functions.invoke("compute-campaign-segment-map", {
         body: { workspace_id: wsId },
@@ -220,13 +256,11 @@ const SegmentsSettings = () => {
   const recomputeSegmentDaily = async () => {
     setRecomputingDaily(true);
     try {
-      // Step 1: Always recompute mapping first
       toast.info("Paso 1/2: Recomputando mapping…");
       await supabase.functions.invoke("compute-campaign-segment-map", {
         body: { workspace_id: wsId },
       });
 
-      // Step 2: Then compute segment_daily
       toast.info("Paso 2/2: Agregando métricas por segmento…");
       const { data, error } = await supabase.functions.invoke("compute-segment-daily", {
         body: { workspace_id: wsId, days_back: 30 },
@@ -325,7 +359,7 @@ const SegmentsSettings = () => {
         </div>
       </div>
 
-      {/* Segments list with rules */}
+      {/* Segments list with rule groups */}
       {segments.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center text-muted-foreground text-sm">
@@ -336,6 +370,7 @@ const SegmentsSettings = () => {
         <div className="space-y-4">
           {segments.map((seg) => {
             const segRules = rules.filter((r) => r.segment_id === seg.id);
+            const ruleGroups = groupRules(segRules);
             const segCampaigns = assigned.filter((m) => m.segment_id === seg.id).slice(0, 20);
 
             return (
@@ -359,29 +394,45 @@ const SegmentsSettings = () => {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Rules */}
+                  {/* Rule Groups */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Reglas</span>
                       {isAdmin && (
-                        <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => openCreateRule(seg.id)}>
-                          <Plus className="h-3 w-3 mr-1" /> Agregar regla
+                        <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => openCreateRuleGroup(seg.id)}>
+                          <Plus className="h-3 w-3 mr-1" /> Agregar grupo de reglas
                         </Button>
                       )}
                     </div>
-                    {segRules.length === 0 ? (
+                    {ruleGroups.length === 0 ? (
                       <p className="text-xs text-muted-foreground">Sin reglas configuradas.</p>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {segRules.map((r) => (
-                          <Badge key={r.id} variant="secondary" className="gap-1 text-[10px] font-mono">
-                            {r.platform !== "any" && <span className="opacity-60">{r.platform}:</span>}
-                            {r.rule_type}("{r.rule_value}")
+                      <div className="space-y-2">
+                        {ruleGroups.map((group) => (
+                          <div key={group.group_id} className="flex items-center gap-1.5 flex-wrap p-2 rounded-md bg-muted/30 border border-border/50">
+                            {group.rules.map((r, idx) => (
+                              <span key={r.id} className="contents">
+                                {idx > 0 && <Badge variant="outline" className="text-[9px] font-bold bg-primary/10 text-primary border-primary/20">AND</Badge>}
+                                <Badge variant="secondary" className="text-[10px] font-mono">
+                                  {r.platform !== "any" && <span className="opacity-60">{r.platform}:</span>}
+                                  {r.rule_type}("{r.rule_value}")
+                                </Badge>
+                              </span>
+                            ))}
                             {isAdmin && (
-                              <button onClick={() => deleteRule(r.id)} className="ml-1 opacity-50 hover:opacity-100">×</button>
+                              <button
+                                onClick={() => deleteRuleGroup(group.group_id)}
+                                className="ml-auto text-muted-foreground/50 hover:text-destructive transition-colors"
+                                title="Eliminar grupo"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
                             )}
-                          </Badge>
+                          </div>
                         ))}
+                        {ruleGroups.length > 1 && (
+                          <p className="text-[10px] text-muted-foreground/60 italic">Los grupos se evalúan como OR entre sí</p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -477,52 +528,64 @@ const SegmentsSettings = () => {
         </Card>
       )}
 
-      {/* Rule creation dialog */}
-      <Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
-        <DialogContent>
+      {/* Rule Group creation dialog */}
+      <Dialog open={ruleGroupDialogOpen} onOpenChange={setRuleGroupDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Nueva regla</DialogTitle>
+            <DialogTitle>Nuevo grupo de reglas</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Plataforma</Label>
-                <Select value={ruleForm.platform} onValueChange={(v) => setRuleForm({ ...ruleForm, platform: v as "meta" | "google_ads" | "any" })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Cualquiera</SelectItem>
-                    <SelectItem value="meta">Meta</SelectItem>
-                    <SelectItem value="google_ads">Google Ads</SelectItem>
-                  </SelectContent>
-                </Select>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Todas las condiciones de un grupo deben cumplirse simultáneamente (AND). 
+            Para lógica OR, creá grupos separados.
+          </p>
+          <div className="space-y-3 pt-2 max-h-[50vh] overflow-y-auto">
+            {ruleGroupConditions.map((cond, idx) => (
+              <div key={idx} className="space-y-2 p-3 rounded-md bg-muted/30 border border-border/50 relative">
+                {idx > 0 && (
+                  <Badge variant="outline" className="absolute -top-2.5 left-3 text-[9px] font-bold bg-primary/10 text-primary border-primary/20">
+                    AND
+                  </Badge>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground font-medium">Condición {idx + 1}</span>
+                  {ruleGroupConditions.length > 1 && (
+                    <button onClick={() => removeCondition(idx)} className="text-muted-foreground/50 hover:text-destructive">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={cond.platform} onValueChange={(v) => updateCondition(idx, "platform", v)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Cualquiera</SelectItem>
+                      <SelectItem value="meta">Meta</SelectItem>
+                      <SelectItem value="google_ads">Google Ads</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={cond.rule_type} onValueChange={(v) => updateCondition(idx, "rule_type", v)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contains">Contains</SelectItem>
+                      <SelectItem value="starts_with">Starts with</SelectItem>
+                      <SelectItem value="regex">Regex</SelectItem>
+                      <SelectItem value="in_list">In list</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  className="h-8 text-xs"
+                  value={cond.rule_value}
+                  onChange={(e) => updateCondition(idx, "rule_value", e.target.value)}
+                  placeholder={cond.rule_type === "in_list" ? "valor1,valor2" : "texto a buscar"}
+                />
               </div>
-              <div className="space-y-1.5">
-                <Label>Tipo de regla</Label>
-                <Select value={ruleForm.rule_type} onValueChange={(v) => setRuleForm({ ...ruleForm, rule_type: v as "contains" | "starts_with" | "regex" | "in_list" })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="contains">Contains</SelectItem>
-                    <SelectItem value="starts_with">Starts with</SelectItem>
-                    <SelectItem value="regex">Regex</SelectItem>
-                    <SelectItem value="in_list">In list</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Valor</Label>
-              <Input
-                value={ruleForm.rule_value}
-                onChange={(e) => setRuleForm({ ...ruleForm, rule_value: e.target.value })}
-                placeholder={ruleForm.rule_type === "in_list" ? "valor1,valor2,valor3" : "texto a buscar"}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Prioridad</Label>
-              <Input type="number" value={ruleForm.priority} onChange={(e) => setRuleForm({ ...ruleForm, priority: e.target.value })} />
-            </div>
-            <Button onClick={saveRule} className="w-full">Guardar regla</Button>
+            ))}
           </div>
+          <Button variant="outline" size="sm" className="w-full text-xs" onClick={addCondition}>
+            <Plus className="h-3 w-3 mr-1.5" /> Agregar condición AND
+          </Button>
+          <Button onClick={saveRuleGroup} className="w-full">Guardar grupo</Button>
         </DialogContent>
       </Dialog>
     </div>
