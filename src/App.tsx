@@ -17,6 +17,8 @@ import Connections from "@/pages/Connections";
 import AdminOps from "@/pages/AdminOps";
 import FinancialSettings from "@/pages/FinancialSettings";
 import ClientHub from "@/pages/ClientHub";
+import Changelog from "@/pages/Changelog";
+import ChangelogDashboard from "@/pages/ChangelogDashboard";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -46,7 +48,8 @@ const App = () => (
               <Route path="/performance" element={<Performance />} />
               <Route path="/creatives" element={<Placeholder title="Creative Performance" />} />
               <Route path="/finance" element={<Placeholder title="Finance & Unit Economics" />} />
-              <Route path="/changelog" element={<Placeholder title="Bitácora" />} />
+              <Route path="/changelog" element={<Changelog />} />
+              <Route path="/changelog/dashboard" element={<ChangelogDashboard />} />
               <Route path="/experiments" element={<Placeholder title="Experiments Board" />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/settings/segments" element={<SegmentsSettings />} />
