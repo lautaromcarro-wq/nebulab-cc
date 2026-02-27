@@ -1,7 +1,8 @@
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Users } from "lucide-react";
 import { useWorkspace, type PlatformFilter } from "@/contexts/WorkspaceContext";
+import { useClient } from "@/contexts/ClientContext";
 import {
   Select,
   SelectContent,
@@ -29,8 +30,37 @@ const SegmentFilter = () => {
     setDateRange,
   } = useWorkspace();
 
+  const { clients, selectedClient, setSelectedClient } = useClient();
+
   return (
     <div className="flex items-center gap-2 flex-wrap">
+      {/* Client selector */}
+      <Select
+        value={selectedClient?.id ?? "all"}
+        onValueChange={(v) => {
+          if (v === "all") setSelectedClient(null);
+          else {
+            const c = clients.find((cl) => cl.id === v) ?? null;
+            setSelectedClient(c);
+          }
+        }}
+      >
+        <SelectTrigger className="w-[150px] h-8 text-xs">
+          <div className="flex items-center gap-1.5 truncate">
+            <Users className="h-3.5 w-3.5 shrink-0" />
+            <SelectValue placeholder="Cliente" />
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos los Clientes</SelectItem>
+          {clients.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
       {/* Segment selector */}
       <Select
         value={selectedSegmentId ?? "all"}
