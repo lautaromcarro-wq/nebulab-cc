@@ -614,6 +614,66 @@ export type Database = {
           },
         ]
       }
+      creative_performance_daily: {
+        Row: {
+          clicks: number | null
+          created_at: string
+          creative_id: string
+          currency: string
+          date: string
+          id: string
+          impressions: number | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          purchases: number | null
+          revenue: number | null
+          spend: number
+          workspace_id: string
+        }
+        Insert: {
+          clicks?: number | null
+          created_at?: string
+          creative_id: string
+          currency?: string
+          date: string
+          id?: string
+          impressions?: number | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          purchases?: number | null
+          revenue?: number | null
+          spend?: number
+          workspace_id: string
+        }
+        Update: {
+          clicks?: number | null
+          created_at?: string
+          creative_id?: string
+          currency?: string
+          date?: string
+          id?: string
+          impressions?: number | null
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          purchases?: number | null
+          revenue?: number | null
+          spend?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_performance_daily_creative_id_fkey"
+            columns: ["creative_id"]
+            isOneToOne: false
+            referencedRelation: "creatives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_performance_daily_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creative_tag_links: {
         Row: {
           creative_id: string
