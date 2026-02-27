@@ -1475,6 +1475,7 @@ export type Database = {
       }
       ga4_by_source: {
         Row: {
+          account_id: string | null
           client_id: string | null
           created_at: string
           currency: string
@@ -1488,6 +1489,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          account_id?: string | null
           client_id?: string | null
           created_at?: string
           currency?: string
@@ -1501,6 +1503,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          account_id?: string | null
           client_id?: string | null
           created_at?: string
           currency?: string
@@ -1514,6 +1517,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "ga4_by_source_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ga4_by_source_client_id_fkey"
             columns: ["client_id"]
@@ -1532,6 +1542,7 @@ export type Database = {
       }
       ga4_daily: {
         Row: {
+          account_id: string | null
           client_id: string | null
           created_at: string
           currency: string
@@ -1543,6 +1554,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          account_id?: string | null
           client_id?: string | null
           created_at?: string
           currency?: string
@@ -1554,6 +1566,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          account_id?: string | null
           client_id?: string | null
           created_at?: string
           currency?: string
@@ -1565,6 +1578,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "ga4_daily_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ga4_daily_client_id_fkey"
             columns: ["client_id"]
