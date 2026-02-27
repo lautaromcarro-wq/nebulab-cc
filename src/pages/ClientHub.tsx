@@ -25,7 +25,10 @@ import {
   FileText,
   ExternalLink,
   Save,
+  Link2,
+  Unlink,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 // ── Financial Settings per client ──
@@ -135,6 +138,9 @@ export default function ClientHub() {
           <TabsTrigger value="vault" className="text-xs gap-1.5">
             <Shield className="h-3.5 w-3.5" />Vault
           </TabsTrigger>
+          <TabsTrigger value="accounts" className="text-xs gap-1.5">
+            <Link2 className="h-3.5 w-3.5" />Cuentas
+          </TabsTrigger>
           <TabsTrigger value="financial" className="text-xs gap-1.5">
             <Briefcase className="h-3.5 w-3.5" />Financial
           </TabsTrigger>
@@ -145,6 +151,9 @@ export default function ClientHub() {
         </TabsContent>
         <TabsContent value="verticals">
           <ClientVerticalsTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
+        </TabsContent>
+        <TabsContent value="accounts">
+          <ClientAccountsTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
         </TabsContent>
         <TabsContent value="financial">
           <ClientFinancialTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
@@ -260,6 +269,110 @@ function ClientOverviewTab({ client, workspaceId, isAdmin, refetch }: { client: 
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ── Accounts Tab ──
+function ClientAccountsTab({ clientId, workspaceId, isAdmin }: { clientId: string; workspaceId: string; isAdmin: boolean }) {
+  const [allAccounts, setAllAccounts] = useState<any[]>([]);
+  const [linked, setLinked] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const fetchData = async () => {
+    const [{ data: accounts }, { data: settings }] = await Promise.all([
+      supabase.from("accounts").select("id, name, external_account_id, provider, status").eq("workspace_id", workspaceId).eq("status", "active").order("provider, name"),
+      supabase.from("client_account_settings").select("*").eq("client_id", clientId),
+    ]);
+    setAllAccounts(accounts ?? []);
+    setLinked(settings ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, [clientId]);
+
+  const isLinked = (extId: string, platform: string) =>
+    linked.some((l) => l.external_account_id === extId && l.platform === platform && l.is_enabled);
+
+  const getSetting = (extId: string, platform: string) =>
+    linked.find((l) => l.external_account_id === extId && l.platform === platform);
+
+  const handleToggle = async (account: any, enable: boolean) => {
+    if (!isAdmin) return;
+    setToggling(account.id);
+    const existing = getSetting(account.external_account_id, account.provider);
+    if (existing) {
+      await supabase.from("client_account_settings").update({ is_enabled: enable, updated_at: new Date().toISOString() }).eq("id", existing.id);
+    } else {
+      await supabase.from("client_account_settings").insert({
+        client_id: clientId,
+        workspace_id: workspaceId,
+        external_account_id: account.external_account_id,
+        account_name: account.name,
+        platform: account.provider,
+        is_enabled: enable,
+      });
+    }
+    await fetchData();
+    setToggling(null);
+    toast.success(enable ? "Cuenta vinculada" : "Cuenta desvinculada");
+  };
+
+  if (loading) return <Skeleton className="h-32" />;
+
+  const grouped = allAccounts.reduce<Record<string, any[]>>((acc, a) => {
+    (acc[a.provider] = acc[a.provider] || []).push(a);
+    return acc;
+  }, {});
+
+  const linkedCount = linked.filter((l) => l.is_enabled).length;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Vinculá las cuentas publicitarias del workspace a este cliente. Solo las cuentas habilitadas se usarán para reportes y sincronización.
+        <span className="ml-2 font-medium">{linkedCount} vinculada(s)</span>
+      </p>
+      {Object.keys(grouped).length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <Link2 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">No hay cuentas en el workspace.</p>
+            <p className="text-xs text-muted-foreground/70 mt-1">Conectá plataformas desde la sección Conexiones.</p>
+          </CardContent>
+        </Card>
+      )}
+      {Object.entries(grouped).map(([provider, accounts]) => (
+        <Card key={provider}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-bold uppercase tracking-wide">{provider}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {accounts.map((a: any) => {
+              const enabled = isLinked(a.external_account_id, a.provider);
+              return (
+                <div key={a.id} className="flex items-center justify-between p-2.5 rounded-md bg-muted/30 hover:bg-muted/50 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium truncate">{a.name || a.external_account_id}</p>
+                    <p className="text-[10px] text-muted-foreground">{a.external_account_id}</p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3">
+                    {enabled && <Badge variant="secondary" className="text-[9px]">Vinculada</Badge>}
+                    {isAdmin && (
+                      <Switch
+                        checked={enabled}
+                        onCheckedChange={(checked) => handleToggle(a, checked)}
+                        disabled={toggling === a.id}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
