@@ -60,7 +60,10 @@ export default function ClientHub() {
           <CardContent className="py-16 text-center">
             <Building2 className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
-              No hay cliente seleccionado. Elegí uno desde el panel lateral.
+              No hay cliente seleccionado.
+            </p>
+            <p className="text-xs text-muted-foreground/70 mt-1">
+              Seleccioná uno del selector en el panel lateral, o creá uno nuevo con el botón <strong>+</strong>.
             </p>
           </CardContent>
         </Card>
