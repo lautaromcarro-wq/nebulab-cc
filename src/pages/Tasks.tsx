@@ -288,16 +288,20 @@ export default function Tasks() {
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
-      await supabase.from("tasks").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+      const { error } = await supabase.from("tasks").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) throw error;
     },
     onSuccess: invalidate,
+    onError: () => toast.error("Error al mover tarea"),
   });
 
   const deleteTask = useMutation({
     mutationFn: async (id: string) => {
-      await supabase.from("tasks").delete().eq("id", id);
+      const { error } = await supabase.from("tasks").delete().eq("id", id);
+      if (error) throw error;
     },
     onSuccess: () => { invalidate(); toast.success("Tarea eliminada"); },
+    onError: () => toast.error("Error al eliminar tarea"),
   });
 
   const handleMove = (id: string, dir: "prev" | "next") => {

@@ -538,19 +538,24 @@ const SegmentsSettings = () => {
   const fetchAll = useCallback(async () => {
     if (!wsId) return;
     setLoading(true);
-    const [segRes, ruleRes, mapRes] = await Promise.all([
-      supabase.from("segments").select("*").eq("workspace_id", wsId).order("name"),
-      supabase.from("segment_rules").select("*").eq("workspace_id", wsId).order("priority"),
-      supabase
-        .from("campaign_segment_map")
-        .select("id, campaign_id, segment_id, match_status, matched_rules, campaigns(name, provider, external_id)")
-        .eq("workspace_id", wsId)
-        .order("match_status"),
-    ]);
-    setSegments(segRes.data ?? []);
-    setRules(ruleRes.data ?? []);
-    setMappings((mapRes.data as unknown as CampaignMapping[]) ?? []);
-    setLoading(false);
+    try {
+      const [segRes, ruleRes, mapRes] = await Promise.all([
+        supabase.from("segments").select("*").eq("workspace_id", wsId).order("name"),
+        supabase.from("segment_rules").select("*").eq("workspace_id", wsId).order("priority"),
+        supabase
+          .from("campaign_segment_map")
+          .select("id, campaign_id, segment_id, match_status, matched_rules, campaigns(name, provider, external_id)")
+          .eq("workspace_id", wsId)
+          .order("match_status"),
+      ]);
+      setSegments(segRes.data ?? []);
+      setRules(ruleRes.data ?? []);
+      setMappings((mapRes.data as unknown as CampaignMapping[]) ?? []);
+    } catch {
+      toast.error("Error al cargar datos de segmentos");
+    } finally {
+      setLoading(false);
+    }
   }, [wsId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -627,13 +632,15 @@ const SegmentsSettings = () => {
   };
 
   const deleteSegment = async (id: string) => {
-    await supabase.from("segments").delete().eq("id", id);
+    const { error } = await supabase.from("segments").delete().eq("id", id);
+    if (error) { toast.error(error.message); return; }
     toast.success("Segmento eliminado");
     fetchAll();
   };
 
   const deleteRuleGroup = async (groupId: string) => {
-    await supabase.from("segment_rules").delete().eq("group_id", groupId);
+    const { error } = await supabase.from("segment_rules").delete().eq("group_id", groupId);
+    if (error) { toast.error(error.message); return; }
     toast.success("Regla eliminada");
     try { await supabase.functions.invoke("compute-campaign-segment-map", { body: { workspace_id: wsId } }); } catch { }
     fetchAll();

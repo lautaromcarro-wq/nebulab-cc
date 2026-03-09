@@ -113,13 +113,16 @@ function useFinanceData() {
 
       const [revResult, costsResult, perfResult, finResult] = await Promise.all([
         // Revenue filtered by client via workspace_revenue_daily
-        supabase
-          .from("workspace_revenue_daily")
-          .select("date, total_revenue, total_purchases")
-          .eq("workspace_id", currentWorkspace.id)
-          .gte("date", fromStr)
-          .lte("date", toStr)
-          .then((q) => clientId ? { ...q, data: (q.data ?? []).filter((r: any) => r.client_id === clientId || !clientId) } : q),
+        (() => {
+          let q = supabase
+            .from("workspace_revenue_daily")
+            .select("date, total_revenue, total_purchases, client_id")
+            .eq("workspace_id", currentWorkspace.id)
+            .gte("date", fromStr)
+            .lte("date", toStr);
+          if (clientId) q = (q as any).eq("client_id", clientId);
+          return q;
+        })(),
         // Additional manual costs (workspace-level, no client_id in schema)
         supabase
           .from("finance_costs")
