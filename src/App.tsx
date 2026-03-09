@@ -28,7 +28,6 @@ import BudgetTracker from "@/pages/BudgetTracker";
 import Tasks from "@/pages/Tasks";
 import Analytics from "@/pages/Analytics";
 import ClientReport from "@/pages/ClientReport";
-import ClientDashboard from "@/pages/ClientDashboard";
 import Reports from "@/pages/Reports";
 import NotFound from "@/pages/NotFound";
 
@@ -44,7 +43,6 @@ const App = () => (
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/report/:token" element={<ClientReport />} />
-            <Route path="/c/:token" element={<ClientDashboard />} />
             <Route
               element={
                 <ProtectedRoute>
