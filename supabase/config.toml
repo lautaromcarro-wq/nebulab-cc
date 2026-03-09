@@ -41,3 +41,9 @@ verify_jwt = false
 
 [functions.backfill-historical]
 verify_jwt = false
+
+[functions.get-client-dashboard]
+verify_jwt = false
+
+[functions.send-weekly-report]
+verify_jwt = false
