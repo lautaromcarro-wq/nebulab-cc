@@ -23,6 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import ClientSwitcher from "@/components/ClientSwitcher";
 import SegmentFilter from "@/components/SegmentFilter";
+import { AlertsBell } from "@/components/AlertsPanel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -111,7 +112,10 @@ const AppLayout = () => {
         {/* Header */}
         <header className="h-12 shrink-0 flex items-center justify-between px-6 bg-gradient-to-r from-primary to-accent border-b border-primary/20">
           <div />
-          <SegmentFilter />
+          <div className="flex items-center gap-3">
+            <SegmentFilter />
+            <AlertsBell />
+          </div>
         </header>
 
         {/* Content */}
