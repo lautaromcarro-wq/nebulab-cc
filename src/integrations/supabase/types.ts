@@ -763,6 +763,57 @@ export type Database = {
           },
         ]
       }
+      client_access_tokens: {
+        Row: {
+          active: boolean
+          client_id: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          label: string | null
+          last_accessed_at: string | null
+          token: string
+          workspace_id: string
+        }
+        Insert: {
+          active?: boolean
+          client_id: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          label?: string | null
+          last_accessed_at?: string | null
+          token?: string
+          workspace_id: string
+        }
+        Update: {
+          active?: boolean
+          client_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          label?: string | null
+          last_accessed_at?: string | null
+          token?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_access_tokens_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_access_tokens_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_access_vault: {
         Row: {
           client_id: string
@@ -1296,6 +1347,60 @@ export type Database = {
           },
           {
             foreignKeyName: "client_productos_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_reports: {
+        Row: {
+          client_id: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          period_from: string | null
+          period_to: string | null
+          report_data: Json
+          title: string | null
+          token: string
+          workspace_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          period_from?: string | null
+          period_to?: string | null
+          report_data?: Json
+          title?: string | null
+          token?: string
+          workspace_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          period_from?: string | null
+          period_to?: string | null
+          report_data?: Json
+          title?: string | null
+          token?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_reports_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_reports_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
