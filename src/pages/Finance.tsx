@@ -70,6 +70,15 @@ interface FinancialSettings {
   iva_percent: number;
 }
 
+interface CostRow {
+  id: string;
+  date: string;
+  cost_type: string;
+  amount: number;
+  notes: string | null;
+  product_category: string | null;
+}
+
 interface FinanceData {
   totalRevenue: number;
   totalSpend: number;
@@ -77,7 +86,7 @@ interface FinanceData {
   contributionMargin: number;
   marginPercent: number;
   orders: number;
-  costRows: Array<{ id: string; date: string; cost_type: string; amount: number; notes: string | null }>;
+  costRows: CostRow[];
   daily: Array<{ date: string; revenue: number; spend: number }>;
   finSettings: FinancialSettings;
 }
@@ -114,7 +123,7 @@ function useFinanceData() {
         // Additional manual costs (workspace-level, no client_id in schema)
         supabase
           .from("finance_costs")
-          .select("id, date, cost_type, amount, notes")
+          .select("id, date, cost_type, amount, notes, product_category")
           .eq("workspace_id", currentWorkspace.id)
           .gte("date", fromStr)
           .lte("date", toStr)
@@ -150,7 +159,7 @@ function useFinanceData() {
       ]);
 
       const revenueRows = revResult.data ?? [];
-      const costRows = (costsResult.data ?? []) as FinanceData["costRows"];
+      const costRows = (costsResult.data ?? []) as CostRow[];
       const perfRows = perfResult.data ?? [];
       const finSettings: FinancialSettings = finResult ? {
         avg_cogs_percent: Number(finResult.avg_cogs_percent) || 0,
@@ -211,7 +220,13 @@ function emptyFinance(): FinanceData {
 
 function AddCostDialog({ workspaceId, onSuccess }: { workspaceId: string; onSuccess: () => void }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ date: format(new Date(), "yyyy-MM-dd"), amount: "", cost_type: "cogs", notes: "" });
+  const [form, setForm] = useState({
+    date: format(new Date(), "yyyy-MM-dd"),
+    amount: "",
+    cost_type: "cogs",
+    product_category: "",
+    notes: "",
+  });
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
@@ -222,13 +237,15 @@ function AddCostDialog({ workspaceId, onSuccess }: { workspaceId: string; onSucc
       date: form.date,
       amount: Number(form.amount),
       cost_type: form.cost_type as any,
+      product_category: form.cost_type === "cogs" && form.product_category.trim() ? form.product_category.trim() : null,
       notes: form.notes || null,
       currency: "USD",
-    });
+    } as any);
     setLoading(false);
     if (error) { toast.error("Error al guardar"); return; }
     toast.success("Costo guardado");
     setOpen(false);
+    setForm({ date: format(new Date(), "yyyy-MM-dd"), amount: "", cost_type: "cogs", product_category: "", notes: "" });
     onSuccess();
   };
 
@@ -251,7 +268,7 @@ function AddCostDialog({ workspaceId, onSuccess }: { workspaceId: string; onSucc
             <Input type="number" placeholder="0.00" value={form.amount} onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))} />
           </div>
           <div>
-            <Label>Tipo</Label>
+            <Label>Categoría de Costo</Label>
             <Select value={form.cost_type} onValueChange={(v) => setForm((p) => ({ ...p, cost_type: v }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -259,9 +276,22 @@ function AddCostDialog({ workspaceId, onSuccess }: { workspaceId: string; onSucc
               </SelectContent>
             </Select>
           </div>
+          {form.cost_type === "cogs" && (
+            <div>
+              <Label>
+                Vertical / Categoría de producto
+                <span className="text-muted-foreground text-[10px] ml-1">(para análisis de share)</span>
+              </Label>
+              <Input
+                placeholder="Ej: Indumentaria, Calzado, Accesorios..."
+                value={form.product_category}
+                onChange={(e) => setForm((p) => ({ ...p, product_category: e.target.value }))}
+              />
+            </div>
+          )}
           <div>
-            <Label>Notas (opcional)</Label>
-            <Input placeholder="Ej: Fee de Shopify Enero" value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
+            <Label>Notas <span className="text-muted-foreground text-[10px]">(opcional)</span></Label>
+            <Input placeholder="Ej: COGS Enero — Proveedor X" value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
           </div>
           <Button className="w-full" onClick={handleSubmit} disabled={loading}>
             {loading ? "Guardando…" : "Guardar"}
@@ -398,6 +428,45 @@ const Finance = () => {
             </Card>
           )}
 
+          {/* COGS Vertical Share */}
+          {(() => {
+            const cogsRows = data!.costRows.filter((r) => r.cost_type === "cogs" && r.product_category);
+            if (cogsRows.length === 0) return null;
+            const totalCogs = cogsRows.reduce((s, r) => s + r.amount, 0);
+            const byVertical = new Map<string, number>();
+            for (const r of cogsRows) {
+              byVertical.set(r.product_category!, (byVertical.get(r.product_category!) ?? 0) + r.amount);
+            }
+            const verticals = Array.from(byVertical.entries())
+              .map(([cat, amt]) => ({ cat, amt, pct: totalCogs > 0 ? (amt / totalCogs) * 100 : 0 }))
+              .sort((a, b) => b.amt - a.amt);
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-bold uppercase tracking-wide">COGS por Vertical</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2.5">
+                  {verticals.map((v) => (
+                    <div key={v.cat} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium">{v.cat}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {fmtCurrency(v.amt)} <span className="font-semibold text-foreground">{v.pct.toFixed(1)}%</span>
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-primary/70" style={{ width: `${v.pct}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                  <p className="text-[11px] text-muted-foreground pt-1">
+                    Total COGS categorizado: <span className="font-medium text-foreground">{fmtCurrency(totalCogs)}</span>
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           {/* Additional Costs Table */}
           {data!.costRows.length > 0 && (
             <Card>
@@ -410,6 +479,7 @@ const Finance = () => {
                     <TableRow>
                       <TableHead>Fecha</TableHead>
                       <TableHead>Tipo</TableHead>
+                      <TableHead>Vertical</TableHead>
                       <TableHead>Monto</TableHead>
                       <TableHead>Notas</TableHead>
                     </TableRow>
@@ -419,6 +489,7 @@ const Finance = () => {
                       <TableRow key={r.id}>
                         <TableCell className="text-xs">{r.date}</TableCell>
                         <TableCell className="text-xs">{costTypeLabel[r.cost_type] ?? r.cost_type}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.product_category ?? "—"}</TableCell>
                         <TableCell className="text-xs font-medium tabular-nums">{fmtCurrency(r.amount)}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{r.notes ?? "—"}</TableCell>
                       </TableRow>
