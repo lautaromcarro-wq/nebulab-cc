@@ -28,6 +28,7 @@ import BudgetTracker from "@/pages/BudgetTracker";
 import Tasks from "@/pages/Tasks";
 import Analytics from "@/pages/Analytics";
 import ClientReport from "@/pages/ClientReport";
+import Reports from "@/pages/Reports";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -71,6 +72,7 @@ const App = () => (
               <Route path="/budget" element={<BudgetTracker />} />
               <Route path="/tasks" element={<Tasks />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/reports" element={<Reports />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -17,6 +17,7 @@ import {
   PiggyBank,
   CheckSquare,
   LineChart,
+  Mail,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -33,6 +34,7 @@ const navItems = [
   { to: "/finance", label: "Finance", icon: DollarSign },
   { to: "/budget", label: "Budget Tracker", icon: PiggyBank },
   { to: "/analytics", label: "Analytics", icon: LineChart },
+  { to: "/reports", label: "Reportes", icon: Mail },
   { to: "/tasks", label: "Tareas", icon: CheckSquare },
   { to: "/changelog", label: "Bitácora", icon: ClipboardList },
   { to: "/changelog/dashboard", label: "Dashboard Cambios", icon: Activity },
