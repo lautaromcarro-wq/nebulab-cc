@@ -637,6 +637,66 @@ export type Database = {
           },
         ]
       }
+      client_accesos: {
+        Row: {
+          client_id: string
+          created_at: string | null
+          email_destino: string | null
+          estado: string
+          fecha_aprobacion: string | null
+          fecha_solicitud: string | null
+          id: string
+          notas: string | null
+          plataforma: string
+          tipo_acceso: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string | null
+          email_destino?: string | null
+          estado?: string
+          fecha_aprobacion?: string | null
+          fecha_solicitud?: string | null
+          id?: string
+          notas?: string | null
+          plataforma: string
+          tipo_acceso?: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string | null
+          email_destino?: string | null
+          estado?: string
+          fecha_aprobacion?: string | null
+          fecha_solicitud?: string | null
+          id?: string
+          notas?: string | null
+          plataforma?: string
+          tipo_acceso?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_accesos_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_accesos_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_access_vault: {
         Row: {
           client_id: string
@@ -841,6 +901,144 @@ export type Database = {
           },
         ]
       }
+      client_marca_info: {
+        Row: {
+          certificaciones: string | null
+          client_id: string
+          created_at: string | null
+          diferenciales: string | null
+          historia_empresa: string | null
+          id: string
+          link_drive_activos: string | null
+          link_manual_marca: string | null
+          notas: string | null
+          principales_clientes: string | null
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          certificaciones?: string | null
+          client_id: string
+          created_at?: string | null
+          diferenciales?: string | null
+          historia_empresa?: string | null
+          id?: string
+          link_drive_activos?: string | null
+          link_manual_marca?: string | null
+          notas?: string | null
+          principales_clientes?: string | null
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          certificaciones?: string | null
+          client_id?: string
+          created_at?: string | null
+          diferenciales?: string | null
+          historia_empresa?: string | null
+          id?: string
+          link_drive_activos?: string | null
+          link_manual_marca?: string | null
+          notas?: string | null
+          principales_clientes?: string | null
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_marca_info_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: true
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_marca_info_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_productos: {
+        Row: {
+          categoria: string | null
+          client_id: string
+          costo: number | null
+          created_at: string | null
+          id: string
+          marca: string | null
+          margen_porcentaje: number | null
+          nombre_producto: string
+          notas: string | null
+          precio: number | null
+          producto_estrella: boolean | null
+          producto_liquidacion: boolean | null
+          producto_tactico: boolean | null
+          rotacion: string | null
+          sku: string | null
+          stock: number | null
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          categoria?: string | null
+          client_id: string
+          costo?: number | null
+          created_at?: string | null
+          id?: string
+          marca?: string | null
+          margen_porcentaje?: number | null
+          nombre_producto: string
+          notas?: string | null
+          precio?: number | null
+          producto_estrella?: boolean | null
+          producto_liquidacion?: boolean | null
+          producto_tactico?: boolean | null
+          rotacion?: string | null
+          sku?: string | null
+          stock?: number | null
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          categoria?: string | null
+          client_id?: string
+          costo?: number | null
+          created_at?: string | null
+          id?: string
+          marca?: string | null
+          margen_porcentaje?: number | null
+          nombre_producto?: string
+          notas?: string | null
+          precio?: number | null
+          producto_estrella?: boolean | null
+          producto_liquidacion?: boolean | null
+          producto_tactico?: boolean | null
+          rotacion?: string | null
+          sku?: string | null
+          stock?: number | null
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_productos_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_productos_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_vertical_financial_settings: {
         Row: {
           avg_cogs_percent: number
@@ -946,9 +1144,14 @@ export type Database = {
       clients: {
         Row: {
           created_at: string
+          fecha_kickoff: string | null
           id: string
+          industria: string | null
           name: string
           notes: string | null
+          presupuesto_mensual_estimado: number | null
+          prioridad: string | null
+          responsable_nebulab: string | null
           status: string
           updated_at: string
           website_url: string | null
@@ -956,9 +1159,14 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          fecha_kickoff?: string | null
           id?: string
+          industria?: string | null
           name: string
           notes?: string | null
+          presupuesto_mensual_estimado?: number | null
+          prioridad?: string | null
+          responsable_nebulab?: string | null
           status?: string
           updated_at?: string
           website_url?: string | null
@@ -966,9 +1174,14 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          fecha_kickoff?: string | null
           id?: string
+          industria?: string | null
           name?: string
           notes?: string | null
+          presupuesto_mensual_estimado?: number | null
+          prioridad?: string | null
+          responsable_nebulab?: string | null
           status?: string
           updated_at?: string
           website_url?: string | null
@@ -1803,6 +2016,72 @@ export type Database = {
             foreignKeyName: "meta_sync_prefs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      onboarding_checklist: {
+        Row: {
+          categoria: string
+          client_id: string
+          created_at: string | null
+          estado: string
+          evidencia_link: string | null
+          fecha_limite: string | null
+          id: string
+          item: string
+          notas: string | null
+          orden: number | null
+          prioridad: string
+          responsable: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          categoria: string
+          client_id: string
+          created_at?: string | null
+          estado?: string
+          evidencia_link?: string | null
+          fecha_limite?: string | null
+          id?: string
+          item: string
+          notas?: string | null
+          orden?: number | null
+          prioridad?: string
+          responsable?: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          categoria?: string
+          client_id?: string
+          created_at?: string | null
+          estado?: string
+          evidencia_link?: string | null
+          fecha_limite?: string | null
+          id?: string
+          item?: string
+          notas?: string | null
+          orden?: number | null
+          prioridad?: string
+          responsable?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onboarding_checklist_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "onboarding_checklist_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
