@@ -27,6 +27,7 @@ import Billing from "@/pages/Billing";
 import BudgetTracker from "@/pages/BudgetTracker";
 import Tasks from "@/pages/Tasks";
 import Analytics from "@/pages/Analytics";
+import ClientReport from "@/pages/ClientReport";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,7 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path="/auth" element={<Auth />} />
+            <Route path="/report/:token" element={<ClientReport />} />
             <Route
               element={
                 <ProtectedRoute>

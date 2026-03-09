@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useClient } from "@/contexts/ClientContext";
@@ -10,6 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import SectionHeader from "@/components/SectionHeader";
 import { fmt, fmtCurrency, fmtCompact } from "@/components/formatters";
 import {
@@ -23,9 +28,10 @@ import {
 } from "recharts";
 import {
   DollarSign, TrendingUp, TrendingDown, ShoppingCart,
-  Globe, Users, Activity, BarChart3, Minus,
+  Globe, Users, Activity, BarChart3, Minus, FileText, Copy, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 // ── Formatters ──
 const fmtK = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(Math.round(n));
@@ -207,7 +213,13 @@ export default function Analytics() {
   const { currentWorkspace, dateRange } = useWorkspace();
   const { selectedClient } = useClient();
   const wsId = currentWorkspace?.id ?? "";
+  const { toast } = useToast();
+
   const [compare, setCompare] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportTitle, setReportTitle] = useState("");
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const fromStr = format(dateRange.from, "yyyy-MM-dd");
   const toStr = format(dateRange.to, "yyyy-MM-dd");
@@ -328,6 +340,63 @@ export default function Analytics() {
 
   const prevPlatform = (provider: string) => prev.platforms.find((p) => p.provider === provider);
 
+  // ── Report generation ──
+  const generateReport = useMutation({
+    mutationFn: async () => {
+      const token = crypto.randomUUID();
+      const reportData = {
+        kpis: {
+          spend: curr.totalSpend,
+          revenue: curr.totalRevenue,
+          roas: curr.blendedROAS,
+          impressions: curr.totalImpressions,
+          clicks: curr.totalClicks,
+          purchases: curr.totalPurchases,
+          sessions: curr.totalSessions,
+          users: curr.totalUsers,
+        },
+        platforms: curr.platforms.map((p) => ({
+          provider: p.provider,
+          label: p.label,
+          spend: p.spend,
+          revenue: p.revenue,
+          roas: p.roas,
+          impressions: p.impressions,
+          clicks: p.clicks,
+          purchases: p.purchases,
+        })),
+        daily: dailyChart.map((d) => ({ label: d.label, spend: d.spend, revenue: d.revenue })),
+        period: { from: fromStr, to: toStr },
+        client_name: selectedClient?.name ?? null,
+        workspace_name: currentWorkspace?.name ?? "Nebulab",
+      };
+      const { error } = await supabase.from("client_reports").insert({
+        token,
+        workspace_id: wsId,
+        client_id: selectedClient?.id ?? null,
+        client_name: selectedClient?.name ?? null,
+        date_from: fromStr,
+        date_to: toStr,
+        title: reportTitle || null,
+        report_data: reportData,
+      });
+      if (error) throw error;
+      return token;
+    },
+    onSuccess: (token) => {
+      const url = `${window.location.origin}/report/${token}`;
+      setGeneratedLink(url);
+    },
+    onError: () => toast({ title: "Error al generar el reporte", variant: "destructive" }),
+  });
+
+  const copyLink = () => {
+    if (!generatedLink) return;
+    navigator.clipboard.writeText(generatedLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6 animate-fade-in">
@@ -344,17 +413,90 @@ export default function Analytics() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Report Generator Dialog */}
+      <Dialog open={reportOpen} onOpenChange={(o) => { setReportOpen(o); if (!o) { setGeneratedLink(null); setReportTitle(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4" /> Generar reporte para cliente
+            </DialogTitle>
+          </DialogHeader>
+          {!generatedLink ? (
+            <div className="space-y-4 py-2">
+              <div>
+                <Label className="text-xs mb-1.5 block">Título del reporte (opcional)</Label>
+                <Input
+                  placeholder={`Reporte ${selectedClient?.name ?? "cliente"} — ${format(dateRange.from, "MMM yyyy", { locale: es })}`}
+                  value={reportTitle}
+                  onChange={(e) => setReportTitle(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3 text-xs space-y-1">
+                <p className="font-medium">Incluye en el reporte:</p>
+                <ul className="text-muted-foreground space-y-0.5 ml-3 list-disc">
+                  <li>KPIs del período seleccionado</li>
+                  <li>Gráfico de Spend vs Revenue diario</li>
+                  <li>Performance por plataforma</li>
+                  <li>Distribución de inversión</li>
+                </ul>
+                <p className="text-muted-foreground pt-1">
+                  Cliente: <strong>{selectedClient?.name ?? "todos"}</strong> ·{" "}
+                  Período: <strong>{format(dateRange.from, "dd MMM", { locale: es })} – {format(dateRange.to, "dd MMM yyyy", { locale: es })}</strong>
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" size="sm" onClick={() => setReportOpen(false)}>Cancelar</Button>
+                <Button
+                  size="sm"
+                  onClick={() => generateReport.mutate()}
+                  disabled={generateReport.isPending}
+                >
+                  {generateReport.isPending ? "Generando..." : "Generar link"}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <p className="text-sm text-muted-foreground">
+                Tu reporte está listo. Compartí este link con el cliente:
+              </p>
+              <div className="flex gap-2">
+                <Input value={generatedLink} readOnly className="text-xs font-mono" />
+                <Button size="sm" variant="outline" onClick={copyLink} className="shrink-0">
+                  {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="flex-1" onClick={() => window.open(generatedLink, "_blank")}>
+                  Ver reporte
+                </Button>
+                <Button size="sm" className="flex-1" onClick={() => { setGeneratedLink(null); setReportTitle(""); }}>
+                  Generar otro
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <SectionHeader
         badge="Analytics"
         title="Analytics Dashboard"
         subtitle={`${format(dateRange.from, "dd MMM", { locale: es })} – ${format(dateRange.to, "dd MMM yyyy", { locale: es })}`}
         action={
-          <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2">
-            <Switch id="compare" checked={compare} onCheckedChange={setCompare} />
-            <Label htmlFor="compare" className="text-xs cursor-pointer">
-              Comparar con período anterior
-              {compare && <span className="ml-1.5 text-muted-foreground">({comparePeriodLabel})</span>}
-            </Label>
+          <div className="flex items-center gap-3">
+            <Button size="sm" variant="outline" className="text-xs gap-1.5 h-8" onClick={() => setReportOpen(true)}>
+              <FileText className="h-3.5 w-3.5" />
+              Generar reporte
+            </Button>
+            <div className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2">
+              <Switch id="compare" checked={compare} onCheckedChange={setCompare} />
+              <Label htmlFor="compare" className="text-xs cursor-pointer">
+                Comparar con período anterior
+                {compare && <span className="ml-1.5 text-muted-foreground">({comparePeriodLabel})</span>}
+              </Label>
+            </div>
           </div>
         }
       />
