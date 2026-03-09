@@ -11,7 +11,6 @@ import AppLayout from "@/components/AppLayout";
 import Auth from "@/pages/Auth";
 import Home from "@/pages/Home";
 import SegmentsSettings from "@/pages/SegmentsSettings";
-import Placeholder from "@/pages/Placeholder";
 import Performance from "@/pages/Performance";
 import Connections from "@/pages/Connections";
 import AdminOps from "@/pages/AdminOps";
@@ -19,6 +18,15 @@ import FinancialSettings from "@/pages/FinancialSettings";
 import ClientHub from "@/pages/ClientHub";
 import Changelog from "@/pages/Changelog";
 import ChangelogDashboard from "@/pages/ChangelogDashboard";
+import Creatives from "@/pages/Creatives";
+import Finance from "@/pages/Finance";
+import Experiments from "@/pages/Experiments";
+import WorkspaceSettings from "@/pages/WorkspaceSettings";
+import WorkspaceMembers from "@/pages/WorkspaceMembers";
+import Billing from "@/pages/Billing";
+import BudgetTracker from "@/pages/BudgetTracker";
+import Tasks from "@/pages/Tasks";
+import Analytics from "@/pages/Analytics";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -46,15 +54,21 @@ const App = () => (
               <Route path="/" element={<Home />} />
               <Route path="/clients" element={<ClientHub />} />
               <Route path="/performance" element={<Performance />} />
-              <Route path="/creatives" element={<Placeholder title="Creative Performance" />} />
-              <Route path="/finance" element={<Placeholder title="Finance & Unit Economics" />} />
+              <Route path="/creatives" element={<Creatives />} />
+              <Route path="/finance" element={<Finance />} />
               <Route path="/changelog" element={<Changelog />} />
               <Route path="/changelog/dashboard" element={<ChangelogDashboard />} />
-              <Route path="/experiments" element={<Placeholder title="Experiments Board" />} />
+              <Route path="/experiments" element={<Experiments />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/settings/segments" element={<SegmentsSettings />} />
               <Route path="/admin/ops" element={<AdminOps />} />
               <Route path="/settings/financial" element={<FinancialSettings />} />
+              <Route path="/settings/workspace" element={<WorkspaceSettings />} />
+              <Route path="/settings/members" element={<WorkspaceMembers />} />
+              <Route path="/admin/billing" element={<Billing />} />
+              <Route path="/budget" element={<BudgetTracker />} />
+              <Route path="/tasks" element={<Tasks />} />
+              <Route path="/analytics" element={<Analytics />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -12,6 +12,11 @@ import {
   ShieldAlert,
   Users,
   Activity,
+  Building2,
+  Receipt,
+  PiggyBank,
+  CheckSquare,
+  LineChart,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
@@ -26,12 +31,18 @@ const navItems = [
   { to: "/performance", label: "Performance", icon: BarChart3 },
   { to: "/creatives", label: "Creativos", icon: Palette },
   { to: "/finance", label: "Finance", icon: DollarSign },
+  { to: "/budget", label: "Budget Tracker", icon: PiggyBank },
+  { to: "/analytics", label: "Analytics", icon: LineChart },
+  { to: "/tasks", label: "Tareas", icon: CheckSquare },
   { to: "/changelog", label: "Bitácora", icon: ClipboardList },
   { to: "/changelog/dashboard", label: "Dashboard Cambios", icon: Activity },
   { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/connections", label: "Connections", icon: Plug },
   { to: "/settings/segments", label: "Segments", icon: Settings },
   { to: "/settings/financial", label: "Financial", icon: DollarSign },
+  { to: "/settings/workspace", label: "Workspace", icon: Building2 },
+  { to: "/settings/members", label: "Miembros", icon: Users },
+  { to: "/admin/billing", label: "Facturación", icon: Receipt },
   { to: "/admin/ops", label: "Ops", icon: ShieldAlert },
 ];
 

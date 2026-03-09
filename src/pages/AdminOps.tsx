@@ -11,9 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Shield, Activity, Settings2, Database, AlertTriangle, Bug } from "lucide-react";
+import { Shield, Activity, Settings2, Database, AlertTriangle, Bug, RefreshCw, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
 const LIMITS = {
   CRON_MAX_DAYS_BACK: 3,
@@ -56,6 +60,15 @@ interface DataCoverage {
   currencies: string[];
 }
 
+interface AlertRule {
+  id: string;
+  rule_type: string;
+  severity: string;
+  entity_scope: string | null;
+  is_enabled: boolean;
+  description: string | null;
+}
+
 const SEVERITY_COLORS: Record<string, string> = {
   info: "bg-blue-500/15 text-blue-600 border-blue-500/30",
   warn: "bg-amber-500/15 text-amber-600 border-amber-500/30",
@@ -77,6 +90,11 @@ export default function AdminOps() {
   const [loading, setLoading] = useState(true);
   const [debugResult, setDebugResult] = useState<Record<string, unknown> | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [backfillProvider, setBackfillProvider] = useState<"meta" | "google_ads">("meta");
+  const [backfillFrom, setBackfillFrom] = useState("");
+  const [backfillTo, setBackfillTo] = useState("");
+  const [backfillLoading, setBackfillLoading] = useState(false);
 
   const runEnvDebug = async () => {
     setDebugLoading(true);
@@ -148,6 +166,41 @@ export default function AdminOps() {
 
     fetchAll();
   }, [currentWorkspace]);
+
+  useEffect(() => {
+    if (!currentWorkspace) return;
+    supabase
+      .from("alert_rules")
+      .select("id, rule_type, severity, entity_scope, is_enabled, description")
+      .eq("workspace_id", currentWorkspace.id)
+      .order("rule_type")
+      .then(({ data }) => setAlertRules((data as unknown as AlertRule[]) ?? []));
+  }, [currentWorkspace]);
+
+  const toggleAlertRule = async (id: string, enabled: boolean) => {
+    const { error } = await supabase.from("alert_rules").update({ is_enabled: enabled }).eq("id", id);
+    if (error) { toast.error("Error al actualizar regla"); return; }
+    setAlertRules((prev) => prev.map((r) => r.id === id ? { ...r, is_enabled: enabled } : r));
+  };
+
+  const runBackfill = async () => {
+    if (!currentWorkspace || !backfillFrom || !backfillTo) {
+      toast.error("Completá fecha inicio y fin"); return;
+    }
+    setBackfillLoading(true);
+    try {
+      const fnName = backfillProvider === "meta" ? "backfill-meta" : "backfill-google-ads";
+      const { error } = await supabase.functions.invoke(fnName, {
+        body: { workspace_id: currentWorkspace.id, from: backfillFrom, to: backfillTo },
+      });
+      if (error) toast.error(`Error: ${error.message}`);
+      else toast.success(`Backfill ${backfillProvider} iniciado para ${backfillFrom} → ${backfillTo}`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Error desconocido");
+    } finally {
+      setBackfillLoading(false);
+    }
+  };
 
   if (loading) {
     return <div className="animate-pulse text-muted-foreground p-8">Cargando…</div>;
@@ -250,6 +303,97 @@ export default function AdminOps() {
             <pre className="text-xs bg-muted p-3 rounded overflow-x-auto whitespace-pre-wrap font-mono">
               {JSON.stringify(debugResult, null, 2)}
             </pre>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Backfill */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Backfill Manual
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Lanza un backfill de datos históricos para el rango de fechas indicado. El job corre de forma asíncrona.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <Label className="text-xs">Plataforma</Label>
+              <div className="flex gap-2 mt-1">
+                <Button
+                  size="sm"
+                  variant={backfillProvider === "meta" ? "default" : "outline"}
+                  className="h-8 text-xs"
+                  onClick={() => setBackfillProvider("meta")}
+                >Meta</Button>
+                <Button
+                  size="sm"
+                  variant={backfillProvider === "google_ads" ? "default" : "outline"}
+                  className="h-8 text-xs"
+                  onClick={() => setBackfillProvider("google_ads")}
+                >Google Ads</Button>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Desde</Label>
+              <Input type="date" value={backfillFrom} onChange={(e) => setBackfillFrom(e.target.value)} className="h-8 text-xs mt-1 w-36" />
+            </div>
+            <div>
+              <Label className="text-xs">Hasta</Label>
+              <Input type="date" value={backfillTo} onChange={(e) => setBackfillTo(e.target.value)} className="h-8 text-xs mt-1 w-36" />
+            </div>
+            <Button size="sm" onClick={runBackfill} disabled={backfillLoading || !backfillFrom || !backfillTo} className="h-8 text-xs gap-1.5">
+              <RefreshCw className={`h-3.5 w-3.5 ${backfillLoading ? "animate-spin" : ""}`} />
+              {backfillLoading ? "Ejecutando…" : "Ejecutar Backfill"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Alert Rules */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="h-4 w-4" />
+            Alert Rules ({alertRules.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {alertRules.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay reglas de alertas configuradas.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Tipo</TableHead>
+                  <TableHead className="text-xs">Severidad</TableHead>
+                  <TableHead className="text-xs">Scope</TableHead>
+                  <TableHead className="text-xs">Descripción</TableHead>
+                  <TableHead className="text-xs text-right">Activo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {alertRules.map((rule) => (
+                  <TableRow key={rule.id}>
+                    <TableCell className="text-xs font-mono">{rule.rule_type}</TableCell>
+                    <TableCell>
+                      <Badge className={SEVERITY_COLORS[rule.severity] ?? ""}>{rule.severity}</Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{rule.entity_scope ?? "—"}</TableCell>
+                    <TableCell className="text-xs max-w-xs truncate">{rule.description ?? "—"}</TableCell>
+                    <TableCell className="text-right">
+                      <Switch
+                        checked={rule.is_enabled}
+                        onCheckedChange={(v) => toggleAlertRule(rule.id, v)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
-import { useClient } from "@/contexts/ClientContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,14 +35,12 @@ const PIE_COLORS = [
 ];
 
 const changeTypeLabels: Record<string, string> = {
-  strategic: "Cambio Estratégico",
   budget: "Cambio de Budget",
-  creative: "Nuevo Creativo",
   targeting: "Cambio de Targeting",
-  bid: "Cambio de Bid",
+  creative: "Creativo",
   landing: "Landing Page",
-  copy: "Copy",
-  new_adset: "Nuevo Conjunto de Anuncios",
+  bidding: "Estrategia de Puja",
+  tracking: "Tracking",
   other: "Otro",
 };
 
@@ -60,12 +57,11 @@ interface Entry {
   created_at: string;
   created_by: string;
   profile_name?: string;
-  client_name?: string;
 }
 
 export default function ChangelogDashboard() {
   const { currentWorkspace } = useWorkspace();
-  const { clients } = useClient();
+
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -111,7 +107,7 @@ export default function ChangelogDashboard() {
     };
 
     fetchData();
-  }, [currentWorkspace, clients]);
+  }, [currentWorkspace]);
 
   const now = new Date();
   const today = format(now, "yyyy-MM-dd");
@@ -120,7 +116,7 @@ export default function ChangelogDashboard() {
   const changesToday = entries.filter((e) => format(new Date(e.created_at), "yyyy-MM-dd") === today).length;
   const changesLast7 = entries.filter((e) => new Date(e.created_at) >= sevenDaysAgo).length;
   const totalChanges = entries.length;
-  const clientsWithChanges = new Set(entries.map((e) => e.client_name).filter(Boolean)).size;
+  const uniqueSpecialists = new Set(entries.map((e) => e.profile_name).filter(Boolean)).size;
 
   // Changes by specialist
   const bySpecialist = useMemo(() => {
@@ -144,19 +140,6 @@ export default function ChangelogDashboard() {
     return Object.entries(map)
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value }));
-  }, [entries]);
-
-  // Changes by client for bar chart (top 10)
-  const byClient = useMemo(() => {
-    const map: Record<string, number> = {};
-    entries.forEach((e) => {
-      const name = e.client_name || "Sin cliente";
-      map[name] = (map[name] || 0) + 1;
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([name, count]) => ({ name, count }));
   }, [entries]);
 
   // Changes by platform
@@ -212,33 +195,8 @@ export default function ChangelogDashboard() {
         <StatCard icon={Clock} label="Cambios Hoy" value={String(changesToday)} status="neutral" />
         <StatCard icon={TrendingUp} label="Últimos 7 días" value={String(changesLast7)} status="primary" />
         <StatCard icon={BarChart3} label="Total Cambios" value={String(totalChanges)} status="neutral" />
-        <StatCard icon={Users} label="Clientes con Cambios" value={String(clientsWithChanges)} status="neutral" />
+        <StatCard icon={Users} label="Especialistas" value={String(uniqueSpecialists)} status="neutral" />
       </div>
-
-      {/* Changes by specialist */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm font-bold">Cambios por Performance Specialist</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4">
-            {bySpecialist.map((s) => (
-              <Card key={s.name} className="shadow-sm min-w-[160px]">
-                <CardContent className="p-4 flex items-center gap-3">
-                  <Users className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">{s.name}</p>
-                    <p className="text-2xl font-bold">{s.count}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Evolution chart */}
       <Card>
@@ -314,23 +272,23 @@ export default function ChangelogDashboard() {
           </CardContent>
         </Card>
 
-        {/* By Client - Bar */}
+        {/* By Specialist - Bar */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Users className="h-4 w-4 text-muted-foreground" />
-              Cambios por Cliente (Top 10)
+              Cambios por Especialista
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {byClient.length === 0 ? (
+            {bySpecialist.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">Sin datos</p>
             ) : (
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={byClient} layout="vertical">
+                <BarChart data={bySpecialist} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                   <RechartsTooltip
                     contentStyle={{
                       background: "hsl(var(--card))",

@@ -26,6 +26,7 @@ interface WorkspaceContextType {
   currentWorkspace: Workspace | null;
   setCurrentWorkspace: (ws: Workspace) => void;
   segments: Segment[];
+  refetchSegments: () => void;
   selectedSegmentId: string | null; // null = All
   setSelectedSegmentId: (id: string | null) => void;
   platformFilter: PlatformFilter;
@@ -41,6 +42,7 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   currentWorkspace: null,
   setCurrentWorkspace: () => {},
   segments: [],
+  refetchSegments: () => {},
   selectedSegmentId: null,
   setSelectedSegmentId: () => {},
   platformFilter: "all",
@@ -99,6 +101,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [currentWorkspace]);
 
+  const refetchSegmentsRef = React.useRef<() => void>(() => {});
+  const refetchSegments = React.useCallback(() => refetchSegmentsRef.current(), []);
+
   // Fetch segments + role when workspace changes
   useEffect(() => {
     if (!currentWorkspace || !user) {
@@ -125,6 +130,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
 
     fetchData();
+    refetchSegmentsRef.current = fetchData;
   }, [currentWorkspace, user]);
 
   return (
@@ -134,6 +140,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         currentWorkspace,
         setCurrentWorkspace,
         segments,
+        refetchSegments,
         selectedSegmentId,
         setSelectedSegmentId,
         platformFilter,

@@ -1,4 +1,5 @@
-import { format } from "date-fns";
+import { format, subDays, startOfMonth } from "date-fns";
+import { useEffect } from "react";
 import { es } from "date-fns/locale";
 import { CalendarIcon, Users } from "lucide-react";
 import { useWorkspace, type PlatformFilter } from "@/contexts/WorkspaceContext";
@@ -19,6 +20,14 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
+const DATE_PRESETS = [
+  { label: "Hoy", fn: () => { const d = new Date(); return { from: d, to: d }; } },
+  { label: "7D", fn: () => ({ from: subDays(new Date(), 6), to: new Date() }) },
+  { label: "14D", fn: () => ({ from: subDays(new Date(), 13), to: new Date() }) },
+  { label: "30D", fn: () => ({ from: subDays(new Date(), 29), to: new Date() }) },
+  { label: "MTD", fn: () => ({ from: startOfMonth(new Date()), to: new Date() }) },
+];
+
 const SegmentFilter = () => {
   const {
     segments,
@@ -31,6 +40,16 @@ const SegmentFilter = () => {
   } = useWorkspace();
 
   const { clients, selectedClient, setSelectedClient } = useClient();
+
+  // Reset segment when client changes
+  useEffect(() => {
+    setSelectedSegmentId(null);
+  }, [selectedClient?.id]);
+
+  // Only show segments belonging to the selected client
+  const visibleSegments = selectedClient
+    ? segments.filter((s) => s.client_id === selectedClient.id)
+    : segments;
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -70,8 +89,10 @@ const SegmentFilter = () => {
           <SelectValue placeholder="Segment" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">Todos los Segments</SelectItem>
-          {segments.map((s) => (
+          <SelectItem value="all">
+            {selectedClient ? "Todas las marcas" : "Todos los Segments"}
+          </SelectItem>
+          {visibleSegments.map((s) => (
             <SelectItem key={s.id} value={s.id}>
               {s.name}
             </SelectItem>
@@ -84,7 +105,7 @@ const SegmentFilter = () => {
         value={platformFilter}
         onValueChange={(v) => setPlatformFilter(v as PlatformFilter)}
       >
-        <SelectTrigger className="w-[130px] h-8 text-xs">
+        <SelectTrigger className="w-[120px] h-8 text-xs">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -95,10 +116,31 @@ const SegmentFilter = () => {
         </SelectContent>
       </Select>
 
-      {/* Date range */}
+      {/* Date presets */}
+      <div className="flex items-center gap-1">
+        {DATE_PRESETS.map((p) => {
+          const range = p.fn();
+          const isActive =
+            format(dateRange.from, "yyyy-MM-dd") === format(range.from, "yyyy-MM-dd") &&
+            format(dateRange.to, "yyyy-MM-dd") === format(range.to, "yyyy-MM-dd");
+          return (
+            <Button
+              key={p.label}
+              variant={isActive ? "secondary" : "ghost"}
+              size="sm"
+              className={cn("h-7 px-2 text-[11px] font-medium", isActive ? "bg-white/20 text-white" : "text-white/70 hover:text-white hover:bg-white/10")}
+              onClick={() => setDateRange(range)}
+            >
+              {p.label}
+            </Button>
+          );
+        })}
+      </div>
+
+      {/* Custom date range picker */}
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 border-white/20 bg-white/10 text-white hover:bg-white/20">
             <CalendarIcon className="h-3.5 w-3.5" />
             {format(dateRange.from, "dd MMM", { locale: es })} –{" "}
             {format(dateRange.to, "dd MMM", { locale: es })}

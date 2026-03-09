@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { useClient } from "@/contexts/ClientContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +64,7 @@ function groupRules(rules: SegmentRule[]): RuleGroup[] {
 
 const SegmentsSettings = () => {
   const { currentWorkspace, workspaceRole } = useWorkspace();
+  const { clients } = useClient();
   const isAdmin = workspaceRole === "admin";
 
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -81,6 +83,7 @@ const SegmentsSettings = () => {
     monthly_budget: "0",
     tolerance_percent: "0.07",
     rolling_avg_days: "3",
+    client_id: "none",
   });
 
   // Rule group creation
@@ -121,7 +124,7 @@ const SegmentsSettings = () => {
   // Segment CRUD
   const openCreateSegment = () => {
     setEditingSegment(null);
-    setSegForm({ name: "", currency: "USD", monthly_budget: "0", tolerance_percent: "0.07", rolling_avg_days: "3" });
+    setSegForm({ name: "", currency: "USD", monthly_budget: "0", tolerance_percent: "0.07", rolling_avg_days: "3", client_id: "none" });
     setSegDialogOpen(true);
   };
 
@@ -133,6 +136,7 @@ const SegmentsSettings = () => {
       monthly_budget: String(s.monthly_budget),
       tolerance_percent: String(s.tolerance_percent),
       rolling_avg_days: String(s.rolling_avg_days),
+      client_id: s.client_id ?? "none",
     });
     setSegDialogOpen(true);
   };
@@ -146,6 +150,7 @@ const SegmentsSettings = () => {
       monthly_budget: Number(segForm.monthly_budget),
       tolerance_percent: Number(segForm.tolerance_percent),
       rolling_avg_days: Number(segForm.rolling_avg_days),
+      client_id: segForm.client_id === "none" ? null : segForm.client_id,
     };
 
     if (editingSegment) {
@@ -328,6 +333,18 @@ const SegmentsSettings = () => {
                 </DialogHeader>
                 <div className="space-y-4 pt-2">
                   <div className="space-y-1.5">
+                    <Label>Cliente / Marca</Label>
+                    <Select value={segForm.client_id} onValueChange={(v) => setSegForm({ ...segForm, client_id: v })}>
+                      <SelectTrigger className="text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin cliente (workspace global)</SelectItem>
+                        {clients.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
                     <Label>Nombre</Label>
                     <Input value={segForm.name} onChange={(e) => setSegForm({ ...segForm, name: e.target.value })} />
                   </div>
@@ -367,8 +384,24 @@ const SegmentsSettings = () => {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {segments.map((seg) => {
+        <div className="space-y-6">
+          {/* Group by client */}
+          {[...clients, null].map((client) => {
+            const clientSegments = client
+              ? segments.filter((s) => s.client_id === client.id)
+              : segments.filter((s) => !s.client_id);
+            if (clientSegments.length === 0) return null;
+            return (
+              <div key={client?.id ?? "global"} className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                    {client ? client.name : "Global (sin cliente)"}
+                  </span>
+                  <div className="flex-1 border-t border-border/50" />
+                  <Badge variant="outline" className="text-[10px]">{clientSegments.length}</Badge>
+                </div>
+                <div className="space-y-4">
+          {clientSegments.map((seg) => {
             const segRules = rules.filter((r) => r.segment_id === seg.id);
             const ruleGroups = groupRules(segRules);
             const segCampaigns = assigned.filter((m) => m.segment_id === seg.id).slice(0, 20);
@@ -457,6 +490,10 @@ const SegmentsSettings = () => {
                   )}
                 </CardContent>
               </Card>
+            );
+          })}
+                </div>
+              </div>
             );
           })}
         </div>

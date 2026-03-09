@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 import type { WorkspaceHealth } from "@/hooks/useWorkspaceHealth";
 
 interface StatusStripProps {
@@ -10,6 +11,7 @@ interface StatusStripProps {
 }
 
 const StatusStrip = ({ health }: StatusStripProps) => {
+  const navigate = useNavigate();
   const isCritical = health.status === "critical";
   const isHealthy = health.status === "healthy";
   const topPenalties = health.penalties.slice(0, 2);
@@ -71,7 +73,12 @@ const StatusStrip = ({ health }: StatusStripProps) => {
           </Tooltip>
         )}
       </div>
-      <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 shrink-0">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 text-xs gap-1 shrink-0"
+        onClick={() => navigate("/admin/ops")}
+      >
         Ver causas <ChevronRight className="h-3 w-3" />
       </Button>
     </div>

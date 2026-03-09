@@ -45,6 +45,7 @@ import {
   ShoppingCart,
   TrendingUp,
   ArrowUpDown,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -62,9 +63,43 @@ const chartConfig: ChartConfig = {
 
 const Performance = () => {
   const { data, isLoading } = usePerformanceData();
-  const { platformFilter, setPlatformFilter } = useWorkspace();
+  const { platformFilter, setPlatformFilter, dateRange } = useWorkspace();
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortAsc, setSortAsc] = useState(false);
+
+  const exportCSV = () => {
+    if (!data) return;
+    const campaigns = [...data.campaigns].sort((a, b) => {
+      const diff = a[sortKey] - b[sortKey];
+      return sortAsc ? diff : -diff;
+    });
+    const rows = [
+      ["Campaña", "Plataforma", "Cuenta", "Spend", "Impressions", "Clicks", "CTR%", "Purchases", "Revenue", "CPA", "ROAS"],
+      ...campaigns.map((c) => [
+        c.campaignName,
+        c.provider,
+        c.accountName,
+        c.spend.toFixed(2),
+        c.impressions,
+        c.clicks,
+        c.ctr.toFixed(2),
+        c.purchases,
+        c.revenue.toFixed(2),
+        c.purchases > 0 ? c.cpa.toFixed(2) : "",
+        c.spend > 0 ? c.roas.toFixed(2) : "",
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const from = dateRange.from.toISOString().split("T")[0];
+    const to = dateRange.to.toISOString().split("T")[0];
+    a.download = `performance_${from}_${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -132,19 +167,24 @@ const Performance = () => {
         title="Campaign Overview"
         subtitle={`${campaigns.length} campaña(s) activa(s)`}
         action={
-          <Select
-            value={platformFilter}
-            onValueChange={(v) => setPlatformFilter(v as PlatformFilter)}
-          >
-            <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              <SelectItem value="meta">Meta</SelectItem>
-              <SelectItem value="google_ads">Google Ads</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select
+              value={platformFilter}
+              onValueChange={(v) => setPlatformFilter(v as PlatformFilter)}
+            >
+              <SelectTrigger className="w-36 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="meta">Meta</SelectItem>
+                <SelectItem value="google_ads">Google Ads</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={exportCSV}>
+              <Download className="h-3.5 w-3.5" /> CSV
+            </Button>
+          </div>
         }
       />
 
