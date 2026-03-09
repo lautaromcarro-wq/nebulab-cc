@@ -1906,45 +1906,63 @@ export type Database = {
       }
       experiments: {
         Row: {
+          ai_insight: string | null
+          baseline: number | null
           created_at: string
           decision: Database["public"]["Enums"]["experiment_decision"] | null
+          description: string | null
           end_date: string | null
+          final_value: number | null
           hypothesis: string
           id: string
           linked_changelog_id: string | null
           metric_primary: string
           owner_id: string
+          platform: string | null
           result_summary: string | null
           start_date: string | null
           status: Database["public"]["Enums"]["experiment_status"]
+          variation_pct: number | null
           workspace_id: string
         }
         Insert: {
+          ai_insight?: string | null
+          baseline?: number | null
           created_at?: string
           decision?: Database["public"]["Enums"]["experiment_decision"] | null
+          description?: string | null
           end_date?: string | null
+          final_value?: number | null
           hypothesis: string
           id?: string
           linked_changelog_id?: string | null
           metric_primary?: string
           owner_id: string
+          platform?: string | null
           result_summary?: string | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["experiment_status"]
+          variation_pct?: number | null
           workspace_id: string
         }
         Update: {
+          ai_insight?: string | null
+          baseline?: number | null
           created_at?: string
           decision?: Database["public"]["Enums"]["experiment_decision"] | null
+          description?: string | null
           end_date?: string | null
+          final_value?: number | null
           hypothesis?: string
           id?: string
           linked_changelog_id?: string | null
           metric_primary?: string
           owner_id?: string
+          platform?: string | null
           result_summary?: string | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["experiment_status"]
+          variation_pct?: number | null
           workspace_id?: string
         }
         Relationships: [
@@ -1974,6 +1992,7 @@ export type Database = {
           id: string
           metadata: Json | null
           notes: string | null
+          product_category: string | null
           workspace_id: string
         }
         Insert: {
@@ -1985,6 +2004,7 @@ export type Database = {
           id?: string
           metadata?: Json | null
           notes?: string | null
+          product_category?: string | null
           workspace_id: string
         }
         Update: {
@@ -1996,6 +2016,7 @@ export type Database = {
           id?: string
           metadata?: Json | null
           notes?: string | null
+          product_category?: string | null
           workspace_id?: string
         }
         Relationships: [
