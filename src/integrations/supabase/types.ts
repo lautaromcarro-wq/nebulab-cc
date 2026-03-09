@@ -353,6 +353,63 @@ export type Database = {
           },
         ]
       }
+      balance_loads: {
+        Row: {
+          amount: number
+          client_id: string
+          created_at: string | null
+          currency: string
+          id: string
+          load_date: string
+          notes: string | null
+          platform: string
+          status: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          amount: number
+          client_id: string
+          created_at?: string | null
+          currency?: string
+          id?: string
+          load_date?: string
+          notes?: string | null
+          platform: string
+          status?: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          amount?: number
+          client_id?: string
+          created_at?: string | null
+          currency?: string
+          id?: string
+          load_date?: string
+          notes?: string | null
+          platform?: string
+          status?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "balance_loads_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "balance_loads_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       buyer_personas: {
         Row: {
           channels: string[] | null
@@ -647,7 +704,10 @@ export type Database = {
           fecha_solicitud: string | null
           id: string
           notas: string | null
+          notes: string | null
           plataforma: string
+          platform: string | null
+          status_v2: string | null
           tipo_acceso: string
           updated_at: string | null
           workspace_id: string
@@ -661,7 +721,10 @@ export type Database = {
           fecha_solicitud?: string | null
           id?: string
           notas?: string | null
+          notes?: string | null
           plataforma: string
+          platform?: string | null
+          status_v2?: string | null
           tipo_acceso?: string
           updated_at?: string | null
           workspace_id: string
@@ -675,7 +738,10 @@ export type Database = {
           fecha_solicitud?: string | null
           id?: string
           notas?: string | null
+          notes?: string | null
           plataforma?: string
+          platform?: string | null
+          status_v2?: string | null
           tipo_acceso?: string
           updated_at?: string | null
           workspace_id?: string
@@ -738,6 +804,63 @@ export type Database = {
           },
           {
             foreignKeyName: "client_access_vault_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_accionables: {
+        Row: {
+          assigned_to: string | null
+          client_id: string
+          created_at: string | null
+          description: string | null
+          due_date: string | null
+          id: string
+          priority: string
+          status: string
+          title: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          client_id: string
+          created_at?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          priority?: string
+          status?: string
+          title: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          assigned_to?: string | null
+          client_id?: string
+          created_at?: string | null
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          priority?: string
+          status?: string
+          title?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_accionables_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_accionables_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -847,6 +970,57 @@ export type Database = {
           },
         ]
       }
+      client_bitacora: {
+        Row: {
+          author_name: string | null
+          body: string
+          client_id: string
+          created_at: string | null
+          id: string
+          title: string | null
+          type: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          author_name?: string | null
+          body: string
+          client_id: string
+          created_at?: string | null
+          id?: string
+          title?: string | null
+          type?: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          author_name?: string | null
+          body?: string
+          client_id?: string
+          created_at?: string | null
+          id?: string
+          title?: string | null
+          type?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_bitacora_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_bitacora_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_financial_settings: {
         Row: {
           avg_cogs_percent: number
@@ -901,19 +1075,93 @@ export type Database = {
           },
         ]
       }
+      client_invoices: {
+        Row: {
+          amount_net: number | null
+          amount_total: number | null
+          client_id: string
+          concept: string | null
+          created_at: string | null
+          currency: string
+          due_date: string | null
+          id: string
+          invoice_number: string | null
+          notes: string | null
+          period: string | null
+          sent_at: string | null
+          status: string
+          updated_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          amount_net?: number | null
+          amount_total?: number | null
+          client_id: string
+          concept?: string | null
+          created_at?: string | null
+          currency?: string
+          due_date?: string | null
+          id?: string
+          invoice_number?: string | null
+          notes?: string | null
+          period?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          amount_net?: number | null
+          amount_total?: number | null
+          client_id?: string
+          concept?: string | null
+          created_at?: string | null
+          currency?: string
+          due_date?: string | null
+          id?: string
+          invoice_number?: string | null
+          notes?: string | null
+          period?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_invoices_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_invoices_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_marca_info: {
         Row: {
           certificaciones: string | null
           client_id: string
           created_at: string | null
           diferenciales: string | null
+          historia: string | null
           historia_empresa: string | null
           id: string
           link_drive_activos: string | null
           link_manual_marca: string | null
           notas: string | null
           principales_clientes: string | null
+          propuesta_valor: string | null
+          publico_objetivo: string | null
+          tono_comunicacion: string | null
           updated_at: string | null
+          valores_marca: string | null
           workspace_id: string
         }
         Insert: {
@@ -921,13 +1169,18 @@ export type Database = {
           client_id: string
           created_at?: string | null
           diferenciales?: string | null
+          historia?: string | null
           historia_empresa?: string | null
           id?: string
           link_drive_activos?: string | null
           link_manual_marca?: string | null
           notas?: string | null
           principales_clientes?: string | null
+          propuesta_valor?: string | null
+          publico_objetivo?: string | null
+          tono_comunicacion?: string | null
           updated_at?: string | null
+          valores_marca?: string | null
           workspace_id: string
         }
         Update: {
@@ -935,13 +1188,18 @@ export type Database = {
           client_id?: string
           created_at?: string | null
           diferenciales?: string | null
+          historia?: string | null
           historia_empresa?: string | null
           id?: string
           link_drive_activos?: string | null
           link_manual_marca?: string | null
           notas?: string | null
           principales_clientes?: string | null
+          propuesta_valor?: string | null
+          publico_objetivo?: string | null
+          tono_comunicacion?: string | null
           updated_at?: string | null
+          valores_marca?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -969,7 +1227,9 @@ export type Database = {
           created_at: string | null
           id: string
           marca: string | null
+          margen_percent: number | null
           margen_porcentaje: number | null
+          nombre: string | null
           nombre_producto: string
           notas: string | null
           precio: number | null
@@ -989,7 +1249,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           marca?: string | null
+          margen_percent?: number | null
           margen_porcentaje?: number | null
+          nombre?: string | null
           nombre_producto: string
           notas?: string | null
           precio?: number | null
@@ -1009,7 +1271,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           marca?: string | null
+          margen_percent?: number | null
           margen_porcentaje?: number | null
+          nombre?: string | null
           nombre_producto?: string
           notas?: string | null
           precio?: number | null
@@ -2024,9 +2288,12 @@ export type Database = {
       onboarding_checklist: {
         Row: {
           categoria: string
+          category: string | null
           client_id: string
+          completed_at: string | null
           created_at: string | null
           estado: string
+          evidence_url: string | null
           evidencia_link: string | null
           fecha_limite: string | null
           id: string
@@ -2035,14 +2302,18 @@ export type Database = {
           orden: number | null
           prioridad: string
           responsable: string
+          title: string | null
           updated_at: string | null
           workspace_id: string
         }
         Insert: {
           categoria: string
+          category?: string | null
           client_id: string
+          completed_at?: string | null
           created_at?: string | null
           estado?: string
+          evidence_url?: string | null
           evidencia_link?: string | null
           fecha_limite?: string | null
           id?: string
@@ -2051,14 +2322,18 @@ export type Database = {
           orden?: number | null
           prioridad?: string
           responsable?: string
+          title?: string | null
           updated_at?: string | null
           workspace_id: string
         }
         Update: {
           categoria?: string
+          category?: string | null
           client_id?: string
+          completed_at?: string | null
           created_at?: string | null
           estado?: string
+          evidence_url?: string | null
           evidencia_link?: string | null
           fecha_limite?: string | null
           id?: string
@@ -2067,6 +2342,7 @@ export type Database = {
           orden?: number | null
           prioridad?: string
           responsable?: string
+          title?: string | null
           updated_at?: string | null
           workspace_id?: string
         }
