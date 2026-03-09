@@ -2096,7 +2096,164 @@ function ClientAccesosTab({ clientId, workspaceId, isAdmin }: { clientId: string
           )}
         </CardContent>
       </Card>
+
+      {/* ── Client Dashboard Link ── */}
+      <ClientDashboardLinkSection clientId={clientId} workspaceId={workspaceId} isAdmin={isAdmin} />
     </div>
+  );
+}
+
+// ── Client Dashboard Link Section ──
+function ClientDashboardLinkSection({ clientId, workspaceId, isAdmin }: { clientId: string; workspaceId: string; isAdmin: boolean }) {
+  const [tokens, setTokens] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const fetchTokens = async () => {
+    const { data } = await supabase
+      .from("client_access_tokens")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+    setTokens(data ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchTokens(); }, [clientId]);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    const { error } = await supabase.from("client_access_tokens").insert({
+      client_id: clientId,
+      workspace_id: workspaceId,
+      label: newLabel.trim() || null,
+      active: true,
+    });
+    if (error) { toast.error("Error al crear el link"); }
+    else { toast.success("Link creado"); setNewLabel(""); fetchTokens(); }
+    setCreating(false);
+  };
+
+  const toggleActive = async (id: string, active: boolean) => {
+    await supabase.from("client_access_tokens").update({ active }).eq("id", id);
+    fetchTokens();
+  };
+
+  const handleDelete = async (id: string) => {
+    await supabase.from("client_access_tokens").delete().eq("id", id);
+    fetchTokens();
+  };
+
+  const copyLink = (token: string, id: string) => {
+    navigator.clipboard.writeText(`${window.location.origin}/c/${token}`);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Globe className="h-4 w-4 text-primary" />
+              Dashboard para el cliente
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Links para que el cliente vea sus métricas sin necesitar login
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <Skeleton className="h-12" />
+        ) : (
+          <>
+            {tokens.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                No hay links generados aún
+              </p>
+            )}
+            {tokens.map((t) => (
+              <div key={t.id} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{t.label || "Link de acceso"}</p>
+                  <p className="text-[10px] text-muted-foreground font-mono truncate">
+                    {window.location.origin}/c/{t.token}
+                  </p>
+                  {t.last_accessed_at && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Último acceso: {format(new Date(t.last_accessed_at), "d MMM yyyy HH:mm", { locale: es })}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!t.active && <Badge variant="secondary" className="text-[9px]">Inactivo</Badge>}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[10px] gap-1 px-2"
+                    onClick={() => copyLink(t.token, t.id)}
+                  >
+                    {copiedId === t.id
+                      ? <><CheckSquare className="h-3 w-3 text-success" /> Copiado</>
+                      : <><KeyRound className="h-3 w-3" /> Copiar link</>
+                    }
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[10px] px-2"
+                    onClick={() => window.open(`/c/${t.token}`, "_blank")}
+                  >
+                    Ver
+                  </Button>
+                  {isAdmin && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px] px-2 text-muted-foreground"
+                        onClick={() => toggleActive(t.id, !t.active)}
+                      >
+                        {t.active ? "Pausar" : "Activar"}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => handleDelete(t.id)}
+                      >
+                        <Trash2 className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {isAdmin && (
+              <div className="flex gap-2 pt-1">
+                <Input
+                  placeholder="Etiqueta (ej: Link para CEO)"
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  className="text-xs h-8 flex-1"
+                  onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+                />
+                <Button size="sm" className="h-8 text-xs gap-1" onClick={handleCreate} disabled={creating}>
+                  <Plus className="h-3 w-3" />
+                  {creating ? "..." : "Generar link"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
