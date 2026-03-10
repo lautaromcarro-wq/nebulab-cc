@@ -408,7 +408,7 @@ function EditExperimentDialog({ exp, onSuccess }: { exp: Experiment; onSuccess: 
             </div>
             <div>
               <Label>Decisión</Label>
-              <Select value={form.decision} onValueChange={(v) => setForm((p) => ({ ...p, decision: v }))}>
+              <Select value={form.decision} onValueChange={(v) => setForm((p) => ({ ...p, decision: v as any }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unknown">Sin decisión</SelectItem>
