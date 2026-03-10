@@ -7,6 +7,7 @@ export interface Client {
   workspace_id: string;
   name: string;
   status: string;
+  client_type: "ecommerce" | "lead_gen";
   notes: string | null;
   website_url: string | null;
   industria: string | null;
