@@ -668,14 +668,14 @@ function ClientOverviewTab({ client, workspaceId, isAdmin, refetch, setActiveTab
     const today = new Date().toISOString().split("T")[0];
     Promise.all([
       supabase.from("client_account_settings").select("*").eq("client_id", client.id).eq("is_enabled", true),
-      supabase.from("onboarding_checklist").select("status").eq("client_id", client.id),
+      supabase.from("onboarding_checklist").select("estado").eq("client_id", client.id),
       supabase.from("balance_loads").select("amount").eq("client_id", client.id).eq("status", "pendiente"),
       supabase.from("client_invoices").select("amount_total, status").eq("client_id", client.id).neq("status", "cobrada"),
       supabase.from("client_accionables").select("id").eq("client_id", client.id).neq("status", "completado").lt("due_date", today),
     ]).then(([accounts, checklist, cargas, facturas, accionables]) => {
       setAccountSettings(accounts.data ?? []);
       const cl = checklist.data ?? [];
-      if (cl.length > 0) setChecklistProgress({ total: cl.length, completed: cl.filter((d) => d.status === "completado").length });
+      if (cl.length > 0) setChecklistProgress({ total: cl.length, completed: cl.filter((d: any) => d.estado === "completado").length });
       setOpsSummary({
         cargasPendientes: (cargas.data ?? []).length,
         cargasPendientesTotal: (cargas.data ?? []).reduce((s, r) => s + Number(r.amount), 0),
@@ -1425,6 +1425,7 @@ function ClientProductosTab({ clientId, workspaceId, isAdmin }: { clientId: stri
     const { error } = await supabase.from("client_productos").insert({
       client_id: clientId,
       workspace_id: workspaceId,
+      nombre_producto: form.nombre.trim(),
       nombre: form.nombre.trim(),
       sku: form.sku || null,
       categoria: form.categoria || null,
@@ -1460,10 +1461,11 @@ function ClientProductosTab({ clientId, workspaceId, isAdmin }: { clientId: stri
 
       if (rows.length === 0) { toast.error("No se encontraron filas válidas. Columna requerida: nombre"); return; }
 
-      const inserts = rows.map((r) => ({
+      const inserts = rows.map((r: any) => ({
         client_id: clientId,
         workspace_id: workspaceId,
-        nombre: r.nombre || r.name,
+        nombre_producto: r.nombre_producto || r.nombre || r.name || "Sin nombre",
+        nombre: r.nombre || r.name || null,
         sku: r.sku || null,
         categoria: r.categoria || r.category || null,
         precio: r.precio || r.price ? Number(r.precio || r.price) : null,
@@ -1471,7 +1473,7 @@ function ClientProductosTab({ clientId, workspaceId, isAdmin }: { clientId: stri
         notas: r.notas || r.notes || null,
       }));
 
-      const { error } = await supabase.from("client_productos").insert(inserts);
+      const { error } = await supabase.from("client_productos").insert(inserts as any);
       if (error) { toast.error("Error al importar CSV"); return; }
       toast.success(`${inserts.length} productos importados`);
       fetchData();
@@ -1893,8 +1895,12 @@ function ClientOnboardingTab({ clientId, workspaceId, isAdmin }: { clientId: str
         DEFAULT_CHECKLIST.map((item) => ({
           client_id: clientId,
           workspace_id: workspaceId,
-          ...item,
-          status: "pendiente",
+          item: item.title,
+          categoria: item.category,
+          category: item.category,
+          title: item.title,
+          prioridad: item.priority,
+          estado: "pendiente",
         }))
       );
       if (!error) {
@@ -2079,9 +2085,9 @@ function ClientAccesosTab({ clientId, workspaceId, isAdmin }: { clientId: string
     const { error } = await supabase.from("client_accesos").insert({
       client_id: clientId,
       workspace_id: workspaceId,
-      platform: newPlatform,
+      plataforma: newPlatform,
       notes: newNotes || null,
-      status: "pendiente",
+      estado: "pendiente",
     });
     if (error) { toast.error("Error al agregar acceso"); return; }
     setAdding(false);

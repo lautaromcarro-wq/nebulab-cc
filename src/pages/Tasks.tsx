@@ -173,7 +173,7 @@ function NewTaskDialog({ workspaceId, clients, onCreated }: { workspaceId: strin
   const handleSave = async () => {
     if (!form.title.trim()) { toast.error("El título es requerido"); return; }
     setSaving(true);
-    const { error } = await supabase.from("tasks").insert({
+    const { error } = await supabase.from("tasks" as any).insert({
       workspace_id: workspaceId,
       title: form.title.trim(),
       description: form.description || null,
@@ -182,7 +182,7 @@ function NewTaskDialog({ workspaceId, clients, onCreated }: { workspaceId: strin
       client_id: form.client_id === "none" ? null : form.client_id,
       due_date: form.due_date || null,
       status: form.status,
-    });
+    } as any);
     setSaving(false);
     if (error) { toast.error("Error al crear tarea"); return; }
     toast.success("Tarea creada");
@@ -276,11 +276,11 @@ export default function Tasks() {
     enabled: !!wsId,
     queryFn: async () => {
       const { data } = await supabase
-        .from("tasks")
+        .from("tasks" as any)
         .select("*")
         .eq("workspace_id", wsId)
         .order("created_at", { ascending: false });
-      return (data ?? []) as Task[];
+      return (data ?? []) as unknown as Task[];
     },
   });
 
@@ -288,7 +288,7 @@ export default function Tasks() {
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
-      const { error } = await supabase.from("tasks").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+      const { error } = await supabase.from("tasks" as any).update({ status, updated_at: new Date().toISOString() } as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -297,7 +297,7 @@ export default function Tasks() {
 
   const deleteTask = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("tasks").delete().eq("id", id);
+      const { error } = await supabase.from("tasks" as any).delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { invalidate(); toast.success("Tarea eliminada"); },

@@ -649,8 +649,8 @@ export default function Analytics() {
                           return acc;
                         }, new Map<string, any>()).values()
                     )
-                      .sort((a, b) => a.date.localeCompare(b.date))
-                      .map((d) => ({ ...d, label: format(new Date(d.date), "dd MMM", { locale: es }) }));
+                      .sort((a: any, b: any) => a.date.localeCompare(b.date))
+                      .map((d: any) => ({ ...d, label: format(new Date(d.date), "dd MMM", { locale: es }) }));
                     if (data.length < 2) return null;
                     return (
                       <div className="mt-4">

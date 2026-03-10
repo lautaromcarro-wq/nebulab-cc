@@ -210,14 +210,13 @@ function CreateFromCampaignsDialog({
     // 2. Create rule group
     const groupId = crypto.randomUUID();
     const { error: ruleErr } = await supabase.from("segment_rules").insert({
-      workspace_id: wsId,
       segment_id: seg.id,
-      platform,
-      rule_type: ruleType,
+      platform: platform as any,
+      rule_type: ruleType as any,
       rule_value: ruleValue.trim(),
       priority: 100,
       group_id: groupId,
-    });
+    } as any);
 
     if (ruleErr) {
       // Cleanup orphan segment before surfacing error
@@ -404,14 +403,13 @@ function QuickAssignDialog({
 
     const groupId = crypto.randomUUID();
     const { error } = await supabase.from("segment_rules").insert({
-      workspace_id: wsId,
       segment_id: segId,
-      platform: campaign.provider === "meta" ? "meta" : campaign.provider === "google_ads" ? "google_ads" : "any",
-      rule_type: ruleType,
+      platform: (campaign.provider === "meta" ? "meta" : campaign.provider === "google_ads" ? "google_ads" : "any") as any,
+      rule_type: ruleType as any,
       rule_value: ruleValue.trim(),
       priority: 100,
       group_id: groupId,
-    });
+    } as any);
 
     if (error) { toast.error("Error al crear regla"); setSaving(false); return; }
 
@@ -659,10 +657,11 @@ const SegmentsSettings = () => {
     const groupId = crypto.randomUUID();
     const { error } = await supabase.from("segment_rules").insert(
       valid.map((c, i) => ({
-        workspace_id: wsId, segment_id: ruleGroupSegmentId,
-        platform: c.platform, rule_type: c.rule_type,
+        segment_id: ruleGroupSegmentId,
+        platform: c.platform as any,
+        rule_type: c.rule_type as any,
         rule_value: c.rule_value.trim(), priority: 100 + i, group_id: groupId,
-      })),
+      })) as any,
     );
     if (error) { toast.error(error.message); return; }
     toast.success("Regla agregada");
