@@ -94,6 +94,29 @@ export default function ClientHub() {
   const { currentWorkspace, workspaceRole } = useWorkspace();
   const isAdmin = workspaceRole === "admin";
   const [activeTab, setActiveTab] = useState("overview");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    website_url: "",
+    notes: "",
+    industria: "",
+    status: "active",
+    responsable_nebulab: "",
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  useEffect(() => {
+    if (selectedClient) {
+      setEditForm({
+        name: selectedClient.name,
+        website_url: selectedClient.website_url ?? "",
+        notes: selectedClient.notes ?? "",
+        industria: selectedClient.industria ?? "",
+        status: selectedClient.status ?? "active",
+        responsable_nebulab: selectedClient.responsable_nebulab ?? "",
+      });
+    }
+  }, [selectedClient]);
 
   if (!selectedClient) {
     return (
@@ -113,30 +136,6 @@ export default function ClientHub() {
       </div>
     );
   }
-
-  const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({
-    name: selectedClient.name,
-    website_url: selectedClient.website_url ?? "",
-    notes: selectedClient.notes ?? "",
-    industria: selectedClient.industria ?? "",
-    status: selectedClient.status ?? "active",
-    responsable_nebulab: selectedClient.responsable_nebulab ?? "",
-  });
-  const [editSaving, setEditSaving] = useState(false);
-
-  useEffect(() => {
-    if (selectedClient) {
-      setEditForm({
-        name: selectedClient.name,
-        website_url: selectedClient.website_url ?? "",
-        notes: selectedClient.notes ?? "",
-        industria: selectedClient.industria ?? "",
-        status: selectedClient.status ?? "active",
-        responsable_nebulab: selectedClient.responsable_nebulab ?? "",
-      });
-    }
-  }, [selectedClient]);
 
   const handleEditSave = async () => {
     if (!editForm.name.trim()) return;
