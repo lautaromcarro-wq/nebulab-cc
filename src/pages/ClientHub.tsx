@@ -58,6 +58,7 @@ import {
   Video,
   CreditCard,
   Receipt,
+  Pencil,
 } from "lucide-react";
 import {
   Dialog,
@@ -93,6 +94,29 @@ export default function ClientHub() {
   const { currentWorkspace, workspaceRole } = useWorkspace();
   const isAdmin = workspaceRole === "admin";
   const [activeTab, setActiveTab] = useState("overview");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    website_url: "",
+    notes: "",
+    industria: "",
+    status: "active",
+    responsable_nebulab: "",
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  useEffect(() => {
+    if (selectedClient) {
+      setEditForm({
+        name: selectedClient.name,
+        website_url: selectedClient.website_url ?? "",
+        notes: selectedClient.notes ?? "",
+        industria: selectedClient.industria ?? "",
+        status: selectedClient.status ?? "active",
+        responsable_nebulab: selectedClient.responsable_nebulab ?? "",
+      });
+    }
+  }, [selectedClient]);
 
   if (!selectedClient) {
     return (
@@ -112,6 +136,30 @@ export default function ClientHub() {
       </div>
     );
   }
+
+  const handleEditSave = async () => {
+    if (!editForm.name.trim()) return;
+    setEditSaving(true);
+    const { error } = await supabase
+      .from("clients")
+      .update({
+        name: editForm.name.trim(),
+        website_url: editForm.website_url || null,
+        notes: editForm.notes || null,
+        industria: editForm.industria || null,
+        status: editForm.status,
+        responsable_nebulab: editForm.responsable_nebulab || null,
+      })
+      .eq("id", selectedClient.id);
+    setEditSaving(false);
+    if (error) {
+      toast.error("Error al guardar cambios");
+    } else {
+      toast.success("Cliente actualizado");
+      refetch();
+      setEditOpen(false);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -157,7 +205,62 @@ export default function ClientHub() {
             </div>
           </div>
         </div>
+        <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setEditOpen(true)}>
+          <Pencil className="h-3.5 w-3.5" />
+          Editar
+        </Button>
       </div>
+
+      {/* Edit Client Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar Cliente</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs">Nombre <span className="text-destructive">*</span></Label>
+              <Input className="mt-1" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs">Estado</Label>
+                <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: v }))}>
+                  <SelectTrigger className="mt-1 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Activo</SelectItem>
+                    <SelectItem value="paused">Pausado</SelectItem>
+                    <SelectItem value="offboarded">Offboarded</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Industria</Label>
+                <Input className="mt-1" value={editForm.industria} onChange={(e) => setEditForm((f) => ({ ...f, industria: e.target.value }))} placeholder="Ej: E-commerce, SaaS…" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Website</Label>
+              <Input className="mt-1" value={editForm.website_url} onChange={(e) => setEditForm((f) => ({ ...f, website_url: e.target.value }))} placeholder="https://…" />
+            </div>
+            <div>
+              <Label className="text-xs">Responsable Nebulab</Label>
+              <Input className="mt-1" value={editForm.responsable_nebulab} onChange={(e) => setEditForm((f) => ({ ...f, responsable_nebulab: e.target.value }))} />
+            </div>
+            <div>
+              <Label className="text-xs">Notas</Label>
+              <Textarea className="mt-1" rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setEditOpen(false)}>Cancelar</Button>
+            <Button size="sm" onClick={handleEditSave} disabled={editSaving || !editForm.name.trim()}>
+              <Save className="h-3.5 w-3.5 mr-1.5" />
+              {editSaving ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
