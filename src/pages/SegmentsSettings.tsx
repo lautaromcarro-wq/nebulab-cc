@@ -571,7 +571,7 @@ const SegmentsSettings = () => {
   const conflicts = mappings.filter((m) => m.match_status === "conflict");
   const allCampaigns: Campaign[] = mappings
     .filter((m) => m.campaigns)
-    .map((m) => m.campaigns!);
+    .map((m) => ({ ...m.campaigns!, id: m.campaign_id }));
 
   const filteredUnassigned = useMemo(() => {
     const term = searchTerm.toLowerCase();
