@@ -58,6 +58,7 @@ import {
   Video,
   CreditCard,
   Receipt,
+  Pencil,
 } from "lucide-react";
 import {
   Dialog,
