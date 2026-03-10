@@ -356,7 +356,8 @@ export default function BudgetTracker() {
         const campIds = segCampaigns.get(seg.id) ?? [];
         const spendMTD = campIds.reduce((sum, cId) => sum + (campaignSpend.get(cId) ?? 0), 0);
         const budget = Number(seg.monthly_budget) || 0;
-        const dailyBurnRate = daysElapsed > 0 ? spendMTD / daysElapsed : 0;
+        // Use at least 3 days to avoid day-1 projection explosion (1 day spend * 31 = unreliable)
+        const dailyBurnRate = spendMTD / Math.max(daysElapsed, 3);
         const projectedMonthly = dailyBurnRate * daysInMonth;
         const percentConsumed = budget > 0 ? (spendMTD / budget) * 100 : 0;
         const daysRemainingAtRate = dailyBurnRate > 0 ? (budget - spendMTD) / dailyBurnRate : Infinity;

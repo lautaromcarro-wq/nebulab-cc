@@ -219,7 +219,13 @@ function CreateFromCampaignsDialog({
       group_id: groupId,
     });
 
-    if (ruleErr) { toast.error("Error al crear regla"); setSaving(false); return; }
+    if (ruleErr) {
+      // Cleanup orphan segment before surfacing error
+      await supabase.from("segments").delete().eq("id", seg.id);
+      toast.error("Error al crear regla del segmento");
+      setSaving(false);
+      return;
+    }
 
     // 3. Recompute
     try {
