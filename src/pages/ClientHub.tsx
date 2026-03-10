@@ -1461,10 +1461,11 @@ function ClientProductosTab({ clientId, workspaceId, isAdmin }: { clientId: stri
 
       if (rows.length === 0) { toast.error("No se encontraron filas válidas. Columna requerida: nombre"); return; }
 
-      const inserts = rows.map((r) => ({
+      const inserts = rows.map((r: any) => ({
         client_id: clientId,
         workspace_id: workspaceId,
-        nombre: r.nombre || r.name,
+        nombre_producto: r.nombre_producto || r.nombre || r.name || "Sin nombre",
+        nombre: r.nombre || r.name || null,
         sku: r.sku || null,
         categoria: r.categoria || r.category || null,
         precio: r.precio || r.price ? Number(r.precio || r.price) : null,
@@ -1472,7 +1473,7 @@ function ClientProductosTab({ clientId, workspaceId, isAdmin }: { clientId: stri
         notas: r.notas || r.notes || null,
       }));
 
-      const { error } = await supabase.from("client_productos").insert(inserts);
+      const { error } = await supabase.from("client_productos").insert(inserts as any);
       if (error) { toast.error("Error al importar CSV"); return; }
       toast.success(`${inserts.length} productos importados`);
       fetchData();

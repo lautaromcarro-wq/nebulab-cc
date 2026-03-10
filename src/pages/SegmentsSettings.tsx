@@ -657,11 +657,11 @@ const SegmentsSettings = () => {
     const groupId = crypto.randomUUID();
     const { error } = await supabase.from("segment_rules").insert(
       valid.map((c, i) => ({
-        workspace_id: wsId, segment_id: ruleGroupSegmentId,
-        platform: c.platform as "any" | "google_ads" | "meta",
-        rule_type: c.rule_type as "contains" | "exact" | "regex" | "starts_with",
+        segment_id: ruleGroupSegmentId,
+        platform: c.platform as any,
+        rule_type: c.rule_type as any,
         rule_value: c.rule_value.trim(), priority: 100 + i, group_id: groupId,
-      })),
+      })) as any,
     );
     if (error) { toast.error(error.message); return; }
     toast.success("Regla agregada");

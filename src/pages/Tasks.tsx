@@ -280,7 +280,7 @@ export default function Tasks() {
         .select("*")
         .eq("workspace_id", wsId)
         .order("created_at", { ascending: false });
-      return (data ?? []) as Task[];
+      return (data ?? []) as unknown as Task[];
     },
   });
 
