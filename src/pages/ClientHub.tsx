@@ -1425,6 +1425,7 @@ function ClientProductosTab({ clientId, workspaceId, isAdmin }: { clientId: stri
     const { error } = await supabase.from("client_productos").insert({
       client_id: clientId,
       workspace_id: workspaceId,
+      nombre_producto: form.nombre.trim(),
       nombre: form.nombre.trim(),
       sku: form.sku || null,
       categoria: form.categoria || null,
