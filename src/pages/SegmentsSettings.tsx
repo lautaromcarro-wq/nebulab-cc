@@ -406,8 +406,8 @@ function QuickAssignDialog({
     const { error } = await supabase.from("segment_rules").insert({
       workspace_id: wsId,
       segment_id: segId,
-      platform: campaign.provider === "meta" ? "meta" : campaign.provider === "google_ads" ? "google_ads" : "any",
-      rule_type: ruleType,
+      platform: (campaign.provider === "meta" ? "meta" : campaign.provider === "google_ads" ? "google_ads" : "any") as "any" | "google_ads" | "meta",
+      rule_type: ruleType as "contains" | "exact" | "regex" | "starts_with",
       rule_value: ruleValue.trim(),
       priority: 100,
       group_id: groupId,
