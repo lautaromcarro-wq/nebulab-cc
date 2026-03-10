@@ -173,7 +173,7 @@ function NewTaskDialog({ workspaceId, clients, onCreated }: { workspaceId: strin
   const handleSave = async () => {
     if (!form.title.trim()) { toast.error("El título es requerido"); return; }
     setSaving(true);
-    const { error } = await supabase.from("tasks").insert({
+    const { error } = await supabase.from("tasks" as any).insert({
       workspace_id: workspaceId,
       title: form.title.trim(),
       description: form.description || null,
@@ -182,7 +182,7 @@ function NewTaskDialog({ workspaceId, clients, onCreated }: { workspaceId: strin
       client_id: form.client_id === "none" ? null : form.client_id,
       due_date: form.due_date || null,
       status: form.status,
-    });
+    } as any);
     setSaving(false);
     if (error) { toast.error("Error al crear tarea"); return; }
     toast.success("Tarea creada");
