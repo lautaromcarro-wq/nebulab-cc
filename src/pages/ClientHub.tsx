@@ -668,7 +668,7 @@ function ClientOverviewTab({ client, workspaceId, isAdmin, refetch, setActiveTab
     const today = new Date().toISOString().split("T")[0];
     Promise.all([
       supabase.from("client_account_settings").select("*").eq("client_id", client.id).eq("is_enabled", true),
-      supabase.from("onboarding_checklist").select("status").eq("client_id", client.id),
+      supabase.from("onboarding_checklist").select("estado").eq("client_id", client.id),
       supabase.from("balance_loads").select("amount").eq("client_id", client.id).eq("status", "pendiente"),
       supabase.from("client_invoices").select("amount_total, status").eq("client_id", client.id).neq("status", "cobrada"),
       supabase.from("client_accionables").select("id").eq("client_id", client.id).neq("status", "completado").lt("due_date", today),
