@@ -675,7 +675,7 @@ function ClientOverviewTab({ client, workspaceId, isAdmin, refetch, setActiveTab
     ]).then(([accounts, checklist, cargas, facturas, accionables]) => {
       setAccountSettings(accounts.data ?? []);
       const cl = checklist.data ?? [];
-      if (cl.length > 0) setChecklistProgress({ total: cl.length, completed: cl.filter((d) => d.status === "completado").length });
+      if (cl.length > 0) setChecklistProgress({ total: cl.length, completed: cl.filter((d: any) => d.estado === "completado").length });
       setOpsSummary({
         cargasPendientes: (cargas.data ?? []).length,
         cargasPendientesTotal: (cargas.data ?? []).reduce((s, r) => s + Number(r.amount), 0),
