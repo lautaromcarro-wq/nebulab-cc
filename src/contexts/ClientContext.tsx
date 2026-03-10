@@ -9,6 +9,11 @@ export interface Client {
   status: string;
   notes: string | null;
   website_url: string | null;
+  industria: string | null;
+  responsable_nebulab: string | null;
+  prioridad: string | null;
+  presupuesto_mensual_estimado: number | null;
+  fecha_kickoff: string | null;
   created_at: string;
   updated_at: string;
 }
