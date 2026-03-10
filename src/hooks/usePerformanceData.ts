@@ -63,6 +63,30 @@ export function usePerformanceData() {
       const from = format(dateRange.from, "yyyy-MM-dd");
       const to = format(dateRange.to, "yyyy-MM-dd");
 
+      // If client selected, resolve their linked account UUIDs first
+      let linkedAccountIds: string[] | null = null;
+      if (selectedClient) {
+        const { data: cas } = await supabase
+          .from("client_account_settings")
+          .select("external_account_id, platform")
+          .eq("client_id", selectedClient.id)
+          .eq("is_enabled", true);
+
+        if (cas && cas.length > 0) {
+          const { data: accts } = await supabase
+            .from("accounts")
+            .select("id, external_account_id, provider")
+            .eq("workspace_id", wsId);
+
+          linkedAccountIds = (accts ?? [])
+            .filter((a) => cas.some((c) => c.external_account_id === a.external_account_id && c.platform === a.provider))
+            .map((a) => a.id);
+        } else {
+          // Client exists but has no linked accounts → return empty
+          linkedAccountIds = [];
+        }
+      }
+
       // Fetch performance rows, campaigns, and accounts in parallel
       let perfQuery = supabase
         .from("performance_daily")
@@ -75,8 +99,11 @@ export function usePerformanceData() {
       if (platformFilter !== "all") {
         perfQuery = perfQuery.eq("provider", platformFilter);
       }
-      if (selectedClient) {
-        perfQuery = perfQuery.eq("client_id", selectedClient.id);
+      if (linkedAccountIds !== null) {
+        if (linkedAccountIds.length === 0) {
+          return { campaigns: [], daily: [], totals: { spend: 0, impressions: 0, clicks: 0, ctr: 0, purchases: 0, revenue: 0, cpa: 0, roas: 0 } };
+        }
+        perfQuery = perfQuery.in("account_id", linkedAccountIds);
       }
 
       const [perfRes, campRes, acctRes] = await Promise.all([
