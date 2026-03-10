@@ -1894,8 +1894,12 @@ function ClientOnboardingTab({ clientId, workspaceId, isAdmin }: { clientId: str
         DEFAULT_CHECKLIST.map((item) => ({
           client_id: clientId,
           workspace_id: workspaceId,
-          ...item,
-          status: "pendiente",
+          item: item.title,
+          categoria: item.category,
+          category: item.category,
+          title: item.title,
+          prioridad: item.priority,
+          estado: "pendiente",
         }))
       );
       if (!error) {
