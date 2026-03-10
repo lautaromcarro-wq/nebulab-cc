@@ -276,7 +276,7 @@ export default function Tasks() {
     enabled: !!wsId,
     queryFn: async () => {
       const { data } = await supabase
-        .from("tasks")
+        .from("tasks" as any)
         .select("*")
         .eq("workspace_id", wsId)
         .order("created_at", { ascending: false });
