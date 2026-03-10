@@ -2084,9 +2084,9 @@ function ClientAccesosTab({ clientId, workspaceId, isAdmin }: { clientId: string
     const { error } = await supabase.from("client_accesos").insert({
       client_id: clientId,
       workspace_id: workspaceId,
-      platform: newPlatform,
+      plataforma: newPlatform,
       notes: newNotes || null,
-      status: "pendiente",
+      estado: "pendiente",
     });
     if (error) { toast.error("Error al agregar acceso"); return; }
     setAdding(false);

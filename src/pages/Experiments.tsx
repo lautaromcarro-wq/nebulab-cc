@@ -655,7 +655,7 @@ const Experiments = () => {
       <SectionHeader
         badge="Experimentos"
         title="Experiments Board"
-        subtitle={data?.length ? <StatsStrip data={data} /> : "0 experimentos"}
+        subtitle={data?.length ? String(data.length) + " experimentos" : "0 experimentos"}
         action={
           currentWorkspace && user && (
             <NewExperimentDialog workspaceId={currentWorkspace.id} userId={user.id} onSuccess={invalidate} />

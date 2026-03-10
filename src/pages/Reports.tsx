@@ -355,11 +355,19 @@ export default function Reports() {
     queryFn: async () => {
       const { data } = await supabase
         .from("client_reports")
-        .select("id, token, client_name, date_from, date_to, title, created_at")
+        .select("id, token, title, period_from, period_to, created_at")
         .eq("workspace_id", wsId)
         .order("created_at", { ascending: false })
         .limit(30);
-      return (data ?? []) as ReportRecord[];
+      return (data ?? []).map((r: any) => ({
+        id: r.id,
+        token: r.token,
+        client_name: r.title ?? "",
+        date_from: r.period_from,
+        date_to: r.period_to,
+        title: r.title,
+        created_at: r.created_at,
+      })) as ReportRecord[];
     },
   });
 

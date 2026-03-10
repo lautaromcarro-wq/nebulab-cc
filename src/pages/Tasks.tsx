@@ -297,7 +297,7 @@ export default function Tasks() {
 
   const deleteTask = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("tasks").delete().eq("id", id);
+      const { error } = await supabase.from("tasks" as any).delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { invalidate(); toast.success("Tarea eliminada"); },

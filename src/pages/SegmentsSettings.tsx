@@ -660,7 +660,8 @@ const SegmentsSettings = () => {
     const { error } = await supabase.from("segment_rules").insert(
       valid.map((c, i) => ({
         workspace_id: wsId, segment_id: ruleGroupSegmentId,
-        platform: c.platform, rule_type: c.rule_type,
+        platform: c.platform as "any" | "google_ads" | "meta",
+        rule_type: c.rule_type as "contains" | "exact" | "regex" | "starts_with",
         rule_value: c.rule_value.trim(), priority: 100 + i, group_id: groupId,
       })),
     );
