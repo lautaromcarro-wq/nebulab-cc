@@ -212,8 +212,8 @@ function CreateFromCampaignsDialog({
     const { error: ruleErr } = await supabase.from("segment_rules").insert({
       workspace_id: wsId,
       segment_id: seg.id,
-      platform,
-      rule_type: ruleType,
+      platform: platform as "any" | "google_ads" | "meta",
+      rule_type: ruleType as "contains" | "exact" | "regex" | "starts_with",
       rule_value: ruleValue.trim(),
       priority: 100,
       group_id: groupId,
