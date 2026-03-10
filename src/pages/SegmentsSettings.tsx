@@ -210,6 +210,7 @@ function CreateFromCampaignsDialog({
     // 2. Create rule group
     const groupId = crypto.randomUUID();
     const { error: ruleErr } = await supabase.from("segment_rules").insert({
+      workspace_id: wsId,
       segment_id: seg.id,
       platform: platform as any,
       rule_type: ruleType as any,
@@ -403,6 +404,7 @@ function QuickAssignDialog({
 
     const groupId = crypto.randomUUID();
     const { error } = await supabase.from("segment_rules").insert({
+      workspace_id: wsId,
       segment_id: segId,
       platform: (campaign.provider === "meta" ? "meta" : campaign.provider === "google_ads" ? "google_ads" : "any") as any,
       rule_type: ruleType as any,
@@ -657,6 +659,7 @@ const SegmentsSettings = () => {
     const groupId = crypto.randomUUID();
     const { error } = await supabase.from("segment_rules").insert(
       valid.map((c, i) => ({
+        workspace_id: wsId,
         segment_id: ruleGroupSegmentId,
         platform: c.platform as any,
         rule_type: c.rule_type as any,
