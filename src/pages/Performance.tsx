@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { format } from "date-fns";
 import { usePerformanceData, type CampaignRow, type PlatformTotals, type DailyPoint } from "@/hooks/usePerformanceData";
 import { useWorkspace, type PlatformFilter } from "@/contexts/WorkspaceContext";
 import { useClient } from "@/contexts/ClientContext";
@@ -44,20 +45,8 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
 } from "recharts";
-import {
-  DollarSign,
-  TrendingUp,
-  MousePointerClick,
-  ShoppingCart,
-  Eye,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus,
-  Download,
-  HelpCircle,
-} from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Minus, Download, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -406,8 +395,6 @@ const Performance = () => {
   const { data, isLoading } = usePerformanceData();
   const { platformFilter, setPlatformFilter, dateRange } = useWorkspace();
   const { selectedClient } = useClient();
-  const [activeTab, setActiveTab] = useState("meta");
-
   const isLeadGen = selectedClient?.client_type === "lead_gen";
 
   const exportCSV = () => {
@@ -473,24 +460,26 @@ const Performance = () => {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="h-9">
-          <TabsTrigger value="meta" className="text-xs gap-1.5">
-            Meta Ads
-            {data && data.meta.campaigns.length > 0 && (
-              <Badge variant="secondary" className="text-[9px] h-4 px-1">{data.meta.campaigns.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="google" className="text-xs gap-1.5">
-            Google Ads
-            {data && data.google.campaigns.length > 0 && (
-              <Badge variant="secondary" className="text-[9px] h-4 px-1">{data.google.campaigns.length}</Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+      {!data ? (
+        <EmptyState title="Sin datos" description="No hay datos de performance para el período seleccionado." />
+      ) : (
+        <Tabs defaultValue="meta">
+          <TabsList className="h-9">
+            <TabsTrigger value="meta" className="text-xs gap-1.5">
+              Meta Ads
+              {data.meta.campaigns.length > 0 && (
+                <Badge variant="secondary" className="text-[9px] h-4 px-1">{data.meta.campaigns.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="google" className="text-xs gap-1.5">
+              Google Ads
+              {data.google.campaigns.length > 0 && (
+                <Badge variant="secondary" className="text-[9px] h-4 px-1">{data.google.campaigns.length}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="meta" className="mt-6">
-          {data ? (
+          <TabsContent value="meta" className="mt-6">
             <MetaTab
               totals={data.meta.totals}
               prevTotals={data.meta.prevTotals}
@@ -498,13 +487,9 @@ const Performance = () => {
               daily={data.meta.daily}
               isLeadGen={isLeadGen}
             />
-          ) : (
-            <EmptyState title="Sin datos" description="No hay datos de performance para el período seleccionado." />
-          )}
-        </TabsContent>
+          </TabsContent>
 
-        <TabsContent value="google" className="mt-6">
-          {data ? (
+          <TabsContent value="google" className="mt-6">
             <GoogleTab
               totals={data.google.totals}
               prevTotals={data.google.prevTotals}
@@ -512,21 +497,12 @@ const Performance = () => {
               daily={data.google.daily}
               isLeadGen={isLeadGen}
             />
-          ) : (
-            <EmptyState title="Sin datos" description="No hay datos de performance para el período seleccionado." />
-          )}
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 };
 
-// date-fns format import for CSV
-function format(d: Date, fmt: string): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return fmt
-    .replace("yyyyMMdd", `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`)
-    .replace("yyyy-MM-dd", `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-}
 
 export default Performance;

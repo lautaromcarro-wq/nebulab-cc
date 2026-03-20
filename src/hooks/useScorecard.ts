@@ -29,6 +29,12 @@ export interface SegmentScorecard {
   dailyAvgSpend: number;
 }
 
+export interface ScorecardDaily {
+  date: string;
+  spend: number;
+  revenue: number;
+}
+
 export interface ScorecardTotals {
   totalSpend: number;
   totalRevenue: number;
@@ -64,8 +70,8 @@ export function useScorecard() {
 
   return useQuery({
     queryKey: ["scorecard", currentWorkspace?.id, clientId, selectedSegmentId, fromStr, toStr],
-    queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals }> => {
-      if (!currentWorkspace) return { cards: [], totals: emptyTotals() };
+    queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals; daily: ScorecardDaily[] }> => {
+      if (!currentWorkspace) return { cards: [], totals: emptyTotals(), daily: [] };
 
       // Filter segments by client if selected
       const filteredSegments = segments.filter((s) => {
@@ -108,8 +114,25 @@ export function useScorecard() {
       const rows = segResult.data ?? [];
       const revenueRows = revResult.data ?? [];
 
-      const wsRevenueGa4 = revenueRows.reduce((s, r) => s + (Number(r.total_revenue) || 0), 0);
-      const wsPurchases = revenueRows.reduce((s, r) => s + (Number(r.total_purchases) || 0), 0);
+      // Daily totals for trend chart
+      const dailyMap = new Map<string, ScorecardDaily>();
+      for (const row of rows) {
+        const d = row.date as string;
+        const ex = dailyMap.get(d);
+        const spend = Number(row.spend) || 0;
+        const rev = (Number(row.revenue_ga4) || Number(row.revenue_platform) || 0);
+        if (ex) { ex.spend += spend; ex.revenue += rev; }
+        else { dailyMap.set(d, { date: d, spend, revenue: rev }); }
+      }
+      const daily = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+      const { wsRevenueGa4, wsPurchases } = revenueRows.reduce(
+        (acc, r) => ({
+          wsRevenueGa4: acc.wsRevenueGa4 + (Number(r.total_revenue) || 0),
+          wsPurchases: acc.wsPurchases + (Number(r.total_purchases) || 0),
+        }),
+        { wsRevenueGa4: 0, wsPurchases: 0 },
+      );
 
       // Group segment_daily by segment_id
       const grouped = new Map<string, typeof rows>();
@@ -129,9 +152,9 @@ export function useScorecard() {
         const spendGoogle = sumNum(segRows, "spend_google");
         const revenuePlatform = sumNum(segRows, "revenue_platform");
         const revenueGa4 = sumNum(segRows, "revenue_ga4");
-        const impressions = sumInt(segRows, "impressions");
-        const clicks = sumInt(segRows, "clicks");
-        const purchases = sumInt(segRows, "purchases");
+        const impressions = sumNum(segRows, "impressions");
+        const clicks = sumNum(segRows, "clicks");
+        const purchases = sumNum(segRows, "purchases");
 
         const revenue = revenueGa4 || revenuePlatform;
         const roas = totalSpend > 0 ? revenue / totalSpend : 0;
@@ -178,15 +201,23 @@ export function useScorecard() {
         };
       });
 
-      const totalSpend = cards.reduce((s, c) => s + c.totalSpend, 0);
-      const totalRevenue = cards.reduce((s, c) => s + (c.revenueGa4 || c.revenuePlatform), 0);
-      const totalImpressions = cards.reduce((s, c) => s + c.impressions, 0);
-      const totalClicks = cards.reduce((s, c) => s + c.clicks, 0);
-      const totalPurchases = cards.reduce((s, c) => s + c.purchases, 0);
-      const totalSpendMeta = cards.reduce((s, c) => s + c.spendMeta, 0);
-      const totalSpendGoogle = cards.reduce((s, c) => s + c.spendGoogle, 0);
-      const totalRevPlatform = cards.reduce((s, c) => s + c.revenuePlatform, 0);
-      const totalRevGa4 = cards.reduce((s, c) => s + c.revenueGa4, 0);
+      const {
+        totalSpend, totalRevenue, totalImpressions, totalClicks, totalPurchases,
+        totalSpendMeta, totalSpendGoogle, totalRevPlatform, totalRevGa4,
+      } = cards.reduce(
+        (acc, c) => ({
+          totalSpend: acc.totalSpend + c.totalSpend,
+          totalRevenue: acc.totalRevenue + (c.revenueGa4 || c.revenuePlatform),
+          totalImpressions: acc.totalImpressions + c.impressions,
+          totalClicks: acc.totalClicks + c.clicks,
+          totalPurchases: acc.totalPurchases + c.purchases,
+          totalSpendMeta: acc.totalSpendMeta + c.spendMeta,
+          totalSpendGoogle: acc.totalSpendGoogle + c.spendGoogle,
+          totalRevPlatform: acc.totalRevPlatform + c.revenuePlatform,
+          totalRevGa4: acc.totalRevGa4 + c.revenueGa4,
+        }),
+        { totalSpend: 0, totalRevenue: 0, totalImpressions: 0, totalClicks: 0, totalPurchases: 0, totalSpendMeta: 0, totalSpendGoogle: 0, totalRevPlatform: 0, totalRevGa4: 0 },
+      );
 
       const effectiveRevGa4 = totalRevGa4 > 0 ? totalRevGa4 : wsRevenueGa4;
       const effectiveRev = totalRevenue > 0 ? totalRevenue : wsRevenueGa4;
@@ -203,6 +234,7 @@ export function useScorecard() {
 
       return {
         cards,
+        daily,
         totals: {
           totalSpend,
           totalRevenue: effectiveRev,
@@ -228,10 +260,6 @@ export function useScorecard() {
 }
 
 function sumNum(rows: any[], key: string): number {
-  return rows.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
-}
-
-function sumInt(rows: any[], key: string): number {
   return rows.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
 }
 

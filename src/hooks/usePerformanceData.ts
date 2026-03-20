@@ -151,11 +151,17 @@ function aggregateRows(rows: any[], campaignNames: Map<string, string>, accountN
     }))
     .sort((a, b) => b.spend - a.spend);
 
-  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
-  const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0);
-  const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0);
-  const totalPurchases = campaigns.reduce((s, c) => s + c.purchases, 0);
-  const totalRevenue = campaigns.reduce((s, c) => s + c.revenue, 0);
+  const { spend: totalSpend, impressions: totalImpressions, clicks: totalClicks, purchases: totalPurchases, revenue: totalRevenue } =
+    campaigns.reduce(
+      (acc, c) => ({
+        spend: acc.spend + c.spend,
+        impressions: acc.impressions + c.impressions,
+        clicks: acc.clicks + c.clicks,
+        purchases: acc.purchases + c.purchases,
+        revenue: acc.revenue + c.revenue,
+      }),
+      { spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0 },
+    );
 
   const totals: PlatformTotals = {
     spend: totalSpend,
@@ -173,11 +179,16 @@ function aggregateRows(rows: any[], campaignNames: Map<string, string>, accountN
 }
 
 function computePrevTotals(rows: any[]): PlatformTotals {
-  const spend = rows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
-  const impressions = rows.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
-  const clicks = rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
-  const purchases = rows.reduce((s, r) => s + (Number(r.purchases) || 0), 0);
-  const revenue = rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+  const { spend, impressions, clicks, purchases, revenue } = rows.reduce(
+    (acc, r) => ({
+      spend: acc.spend + (Number(r.spend) || 0),
+      impressions: acc.impressions + (Number(r.impressions) || 0),
+      clicks: acc.clicks + (Number(r.clicks) || 0),
+      purchases: acc.purchases + (Number(r.purchases) || 0),
+      revenue: acc.revenue + (Number(r.revenue) || 0),
+    }),
+    { spend: 0, impressions: 0, clicks: 0, purchases: 0, revenue: 0 },
+  );
   return {
     spend, impressions, clicks,
     ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,

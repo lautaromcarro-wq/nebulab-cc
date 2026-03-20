@@ -173,8 +173,8 @@ function CreateFromCampaignsDialog({
 
   const [name, setName] = useState("");
   const [budget, setBudget] = useState("");
-  const [currency, setCurrency] = useState("USD");
-  const [clientId, setClientId] = useState("none");
+  const [currency, setCurrency] = useState("ARS");
+  const [clientId, setClientId] = useState("");
   const [ruleValue, setRuleValue] = useState(suggested);
   const [ruleType, setRuleType] = useState("contains");
   const [platform, setPlatform] = useState("any");
@@ -187,6 +187,7 @@ function CreateFromCampaignsDialog({
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error("Nombre requerido"); return; }
+    if (!clientId) { toast.error("Seleccioná un cliente"); return; }
     if (!ruleValue.trim()) { toast.error("Regla requerida"); return; }
     setSaving(true);
 
@@ -200,7 +201,7 @@ function CreateFromCampaignsDialog({
         monthly_budget: Number(budget) || 0,
         tolerance_percent: 0.07,
         rolling_avg_days: 3,
-        client_id: clientId === "none" ? null : clientId,
+        client_id: clientId || null,
       })
       .select("id")
       .single();
@@ -290,11 +291,10 @@ function CreateFromCampaignsDialog({
             </div>
 
             <div>
-              <Label className="text-xs mb-1.5 block">Cliente</Label>
+              <Label className="text-xs mb-1.5 block">Cliente <span className="text-destructive">*</span></Label>
               <Select value={clientId} onValueChange={setClientId}>
-                <SelectTrigger className="text-sm h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="text-sm h-9"><SelectValue placeholder="Seleccioná un cliente" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sin cliente</SelectItem>
                   {clients.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
@@ -530,8 +530,8 @@ const SegmentsSettings = () => {
   const [segDialogOpen, setSegDialogOpen] = useState(false);
   const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
   const [segForm, setSegForm] = useState({
-    name: "", currency: "USD", monthly_budget: "0",
-    tolerance_percent: "0.07", rolling_avg_days: "3", client_id: "none",
+    name: "", currency: "ARS", monthly_budget: "0",
+    tolerance_percent: "0.07", rolling_avg_days: "3", client_id: "",
   });
 
   // Rule group dialog
@@ -617,19 +617,20 @@ const SegmentsSettings = () => {
       monthly_budget: String(s.monthly_budget),
       tolerance_percent: String(s.tolerance_percent),
       rolling_avg_days: String(s.rolling_avg_days),
-      client_id: s.client_id ?? "none",
+      client_id: s.client_id ?? "",
     });
     setSegDialogOpen(true);
   };
 
   const saveSegment = async () => {
     if (!editingSegment) return;
+    if (!segForm.client_id) { toast.error("Seleccioná un cliente"); return; }
     const { error } = await supabase.from("segments").update({
       name: segForm.name, currency: segForm.currency,
       monthly_budget: Number(segForm.monthly_budget),
       tolerance_percent: Number(segForm.tolerance_percent),
       rolling_avg_days: Number(segForm.rolling_avg_days),
-      client_id: segForm.client_id === "none" ? null : segForm.client_id,
+      client_id: segForm.client_id || null,
     }).eq("id", editingSegment.id);
     if (error) { toast.error(error.message); return; }
     toast.success("Segmento actualizado");
@@ -876,7 +877,7 @@ const SegmentsSettings = () => {
                 className="gap-1.5"
                 onClick={() => {
                   setEditingSegment(null);
-                  setSegForm({ name: "", currency: "USD", monthly_budget: "0", tolerance_percent: "0.07", rolling_avg_days: "3", client_id: "none" });
+                  setSegForm({ name: "", currency: "ARS", monthly_budget: "0", tolerance_percent: "0.07", rolling_avg_days: "3", client_id: "" });
                   setSegDialogOpen(true);
                 }}
               >
@@ -1046,7 +1047,6 @@ const SegmentsSettings = () => {
               <Select value={segForm.client_id} onValueChange={(v) => setSegForm({ ...segForm, client_id: v })}>
                 <SelectTrigger className="text-sm h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Sin cliente</SelectItem>
                   {clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>

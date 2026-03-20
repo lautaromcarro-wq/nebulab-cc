@@ -34,8 +34,8 @@ const WorkspaceSettings = () => {
 
   const [form, setForm] = useState({
     name: "",
-    currency: "USD",
-    timezone: "America/Mexico_City",
+    currency: "ARS",
+    timezone: "America/Argentina/Buenos_Aires",
     monthly_budget: "",
   });
   const [saving, setSaving] = useState(false);

@@ -93,6 +93,7 @@ export default function ClientHub() {
   const { selectedClient, refetch } = useClient();
   const { currentWorkspace, workspaceRole } = useWorkspace();
   const isAdmin = workspaceRole === "admin";
+  const canSeeBilling = isAdmin;
   const [activeTab, setActiveTab] = useState("overview");
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -289,12 +290,16 @@ export default function ClientHub() {
           <TabsTrigger value="financial" className="text-xs gap-1.5">
             <Briefcase className="h-3.5 w-3.5" />Financial
           </TabsTrigger>
-          <TabsTrigger value="billing-loads" className="text-xs gap-1.5">
-            <CreditCard className="h-3.5 w-3.5" />Cargas
-          </TabsTrigger>
-          <TabsTrigger value="billing-invoices" className="text-xs gap-1.5">
-            <Receipt className="h-3.5 w-3.5" />Facturas
-          </TabsTrigger>
+          {canSeeBilling && (
+            <TabsTrigger value="billing-loads" className="text-xs gap-1.5">
+              <CreditCard className="h-3.5 w-3.5" />Cargas
+            </TabsTrigger>
+          )}
+          {canSeeBilling && (
+            <TabsTrigger value="billing-invoices" className="text-xs gap-1.5">
+              <Receipt className="h-3.5 w-3.5" />Facturas
+            </TabsTrigger>
+          )}
           <TabsTrigger value="marca" className="text-xs gap-1.5">
             <Briefcase className="h-3.5 w-3.5" />Marca
           </TabsTrigger>
@@ -327,12 +332,16 @@ export default function ClientHub() {
         <TabsContent value="financial">
           <ClientFinancialTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
         </TabsContent>
-        <TabsContent value="billing-loads">
-          <ClientBalanceLoadsTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
-        </TabsContent>
-        <TabsContent value="billing-invoices">
-          <ClientInvoicesTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
-        </TabsContent>
+        {canSeeBilling && (
+          <TabsContent value="billing-loads">
+            <ClientBalanceLoadsTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
+          </TabsContent>
+        )}
+        {canSeeBilling && (
+          <TabsContent value="billing-invoices">
+            <ClientInvoicesTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
+          </TabsContent>
+        )}
         <TabsContent value="personas">
           <ClientPersonasTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
         </TabsContent>
