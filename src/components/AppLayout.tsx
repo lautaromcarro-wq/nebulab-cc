@@ -28,6 +28,7 @@ import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import ClientSwitcher from "@/components/ClientSwitcher";
 import SegmentFilter from "@/components/SegmentFilter";
 import { AlertsBell } from "@/components/AlertsPanel";
+import { GlobalHealthBell } from "@/components/GlobalHealthDrawer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -201,6 +202,7 @@ const AppLayout = () => {
           <div className="flex items-center gap-3">
             <SegmentFilter />
             <AlertsBell />
+            <GlobalHealthBell />
           </div>
         </header>
 

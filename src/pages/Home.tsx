@@ -5,6 +5,7 @@ import { useWorkspaceHealth } from "@/hooks/useWorkspaceHealth";
 import { useProfile } from "@/hooks/useProfile";
 import { useRecentChangelog } from "@/hooks/useRecentChangelog";
 import { useClient } from "@/contexts/ClientContext";
+import { useNavigate } from "react-router-dom";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -390,10 +391,12 @@ const Home = () => {
   const { segments, loading: wsLoading, currentWorkspace } = useWorkspace();
   const { clients, selectedClient } = useClient();
   const { data: scorecard, isLoading } = useScorecard();
+  const prevTotals = scorecard?.prevTotals;
   const { data: platform, isLoading: platformLoading } = usePlatformMetrics();
   const { data: health } = useWorkspaceHealth();
   const { firstName } = useProfile();
   const { entries: changelog, loading: changelogLoading } = useRecentChangelog(5);
+  const navigate = useNavigate();
 
   const loading = wsLoading || isLoading;
   const totals = scorecard?.totals;
@@ -424,6 +427,18 @@ const Home = () => {
           status="primary"
           className="min-w-[140px]"
         />
+        {selectedClient && (
+          <button
+            onClick={() => navigate("/clients")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 transition-all group"
+          >
+            <Sparkles className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+            <div className="text-left">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-primary">AI Analyst</p>
+              <p className="text-[9px] text-muted-foreground">Analizar {selectedClient.name}</p>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Status Strip */}
@@ -451,24 +466,36 @@ const Home = () => {
 
               {/* Hero KPIs */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} status="success" hero />
-                <StatCard icon={DollarSign} label="Spend MTD" value={fmtCurrency(totals.totalSpend)} status="primary" hero />
-                <StatCard
-                  icon={TrendingUp}
-                  label="ROAS GA4"
-                  value={`${fmt(totals.roasGa4, 2)}x`}
-                  tooltip="Revenue GA4 / Spend total."
-                  status={totals.roasGa4 < 1 ? "warning" : "success"}
-                  hero
-                />
-                <StatCard
-                  icon={Percent}
-                  label="Contribution"
-                  value={fmtCurrency(totals.contributionMargin)}
-                  subtitle={`Margin ${fmt(totals.marginPercent, 1)}%`}
-                  status={totals.contributionMargin < 0 ? "destructive" : "success"}
-                  hero
-                />
+                <div className="relative">
+                  <StatCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} status="success" hero />
+                  {prevTotals && <div className="absolute bottom-3 right-3"><DeltaBadge current={totals.revenueGa4} prev={prevTotals.revenueGa4} /></div>}
+                </div>
+                <div className="relative">
+                  <StatCard icon={DollarSign} label="Spend MTD" value={fmtCurrency(totals.totalSpend)} status="primary" hero />
+                  {prevTotals && <div className="absolute bottom-3 right-3"><DeltaBadge current={totals.totalSpend} prev={prevTotals.totalSpend} inverse /></div>}
+                </div>
+                <div className="relative">
+                  <StatCard
+                    icon={TrendingUp}
+                    label="ROAS GA4"
+                    value={`${fmt(totals.roasGa4, 2)}x`}
+                    tooltip="Revenue GA4 / Spend total."
+                    status={totals.roasGa4 < 1 ? "warning" : "success"}
+                    hero
+                  />
+                  {prevTotals && <div className="absolute bottom-3 right-3"><DeltaBadge current={totals.roasGa4} prev={prevTotals.roasGa4} /></div>}
+                </div>
+                <div className="relative">
+                  <StatCard
+                    icon={Percent}
+                    label="Contribution"
+                    value={fmtCurrency(totals.contributionMargin)}
+                    subtitle={`Margin ${fmt(totals.marginPercent, 1)}%`}
+                    status={totals.contributionMargin < 0 ? "destructive" : "success"}
+                    hero
+                  />
+                  {prevTotals && <div className="absolute bottom-3 right-3"><DeltaBadge current={totals.contributionMargin} prev={prevTotals.contributionMargin} /></div>}
+                </div>
               </div>
 
               {/* Secondary KPIs */}

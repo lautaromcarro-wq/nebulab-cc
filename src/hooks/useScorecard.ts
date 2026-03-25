@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useClient } from "@/contexts/ClientContext";
 import { useFinancialSettings } from "@/hooks/useFinancialSettings";
-import { format, getDaysInMonth, differenceInDays } from "date-fns";
+import { format, getDaysInMonth, differenceInDays, subDays } from "date-fns";
 
 export interface SegmentScorecard {
   segmentId: string;
@@ -70,8 +70,8 @@ export function useScorecard() {
 
   return useQuery({
     queryKey: ["scorecard", currentWorkspace?.id, clientId, selectedSegmentId, fromStr, toStr],
-    queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals; daily: ScorecardDaily[] }> => {
-      if (!currentWorkspace) return { cards: [], totals: emptyTotals(), daily: [] };
+    queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals; prevTotals: ScorecardTotals; daily: ScorecardDaily[] }> => {
+      if (!currentWorkspace) return { cards: [], totals: emptyTotals(), prevTotals: emptyTotals(), daily: [] };
 
       // Filter segments by client if selected
       const filteredSegments = segments.filter((s) => {
@@ -107,7 +107,29 @@ export function useScorecard() {
         revQuery = revQuery.eq("client_id", clientId);
       }
 
-      const [segResult, revResult] = await Promise.all([segQuery, revQuery]);
+      // Previous period for delta comparison
+      const daysCount = differenceInDays(dateRange.to, dateRange.from) + 1;
+      const prevFrom = format(subDays(dateRange.from, daysCount), "yyyy-MM-dd");
+      const prevTo = format(subDays(dateRange.from, 1), "yyyy-MM-dd");
+
+      let prevSegQuery = supabase
+        .from("segment_daily")
+        .select("spend,spend_meta,spend_google,revenue_platform,revenue_ga4,impressions,clicks,purchases")
+        .eq("workspace_id", currentWorkspace.id)
+        .gte("date", prevFrom)
+        .lte("date", prevTo);
+      if (selectedSegmentId) prevSegQuery = prevSegQuery.eq("segment_id", selectedSegmentId);
+      if (clientId) prevSegQuery = prevSegQuery.eq("client_id", clientId);
+
+      let prevRevQuery = supabase
+        .from("workspace_revenue_daily")
+        .select("total_revenue,total_purchases")
+        .eq("workspace_id", currentWorkspace.id)
+        .gte("date", prevFrom)
+        .lte("date", prevTo);
+      if (clientId) prevRevQuery = prevRevQuery.eq("client_id", clientId);
+
+      const [segResult, revResult, prevSegResult, prevRevResult] = await Promise.all([segQuery, revQuery, prevSegQuery, prevRevQuery]);
 
       if (segResult.error) throw segResult.error;
 
@@ -232,9 +254,50 @@ export function useScorecard() {
       const contributionMargin = effectiveRev - totalSpend - totalDeductions;
       const marginPercent = effectiveRev > 0 ? (contributionMargin / effectiveRev) * 100 : 0;
 
+      // ── Compute prevTotals ──────────────────────────────────────────
+      const prevRows = prevSegResult.data ?? [];
+      const prevRevRows = prevRevResult.data ?? [];
+      const prevWsRevenueGa4 = prevRevRows.reduce((s, r) => s + (Number(r.total_revenue) || 0), 0);
+      const prevWsPurchases = prevRevRows.reduce((s, r) => s + (Number(r.total_purchases) || 0), 0);
+      const prevTotalSpend = sumNum(prevRows, "spend");
+      const prevSpendMeta = sumNum(prevRows, "spend_meta");
+      const prevSpendGoogle = sumNum(prevRows, "spend_google");
+      const prevRevPlatform = sumNum(prevRows, "revenue_platform");
+      const prevRevGa4Raw = sumNum(prevRows, "revenue_ga4");
+      const prevRevGa4 = prevRevGa4Raw > 0 ? prevRevGa4Raw : prevWsRevenueGa4;
+      const prevRevenue = prevRevGa4 > 0 ? prevRevGa4 : prevRevPlatform;
+      const prevImpressions = sumNum(prevRows, "impressions");
+      const prevClicks = sumNum(prevRows, "clicks");
+      const prevPurchases = sumNum(prevRows, "purchases") || prevWsPurchases;
+      const prevTotalDeductions =
+        prevRevenue * (fin.avg_cogs_percent / 100) +
+        prevRevenue * (fin.shipping_percent / 100) +
+        prevRevenue * (fin.payment_fee_percent / 100) +
+        prevRevenue * (fin.refund_percent / 100) +
+        prevRevenue * (fin.iva_percent / 100);
+      const prevContributionMargin = prevRevenue - prevTotalSpend - prevTotalDeductions;
+
       return {
         cards,
         daily,
+        prevTotals: {
+          totalSpend: prevTotalSpend,
+          totalRevenue: prevRevenue,
+          totalImpressions: prevImpressions,
+          totalClicks: prevClicks,
+          totalPurchases: prevPurchases,
+          roas: prevTotalSpend > 0 ? prevRevenue / prevTotalSpend : 0,
+          ctr: prevImpressions > 0 ? (prevClicks / prevImpressions) * 100 : 0,
+          roasMeta: prevSpendMeta > 0 ? prevRevPlatform / prevSpendMeta : 0,
+          roasGoogle: prevSpendGoogle > 0 ? prevRevPlatform / prevSpendGoogle : 0,
+          roasGa4: prevTotalSpend > 0 ? prevRevGa4 / prevTotalSpend : 0,
+          blendedRoas: prevTotalSpend > 0 ? prevRevGa4 / prevTotalSpend : 0,
+          revenueGa4: prevRevGa4,
+          spendMeta: prevSpendMeta,
+          spendGoogle: prevSpendGoogle,
+          contributionMargin: prevContributionMargin,
+          marginPercent: prevRevenue > 0 ? (prevContributionMargin / prevRevenue) * 100 : 0,
+        },
         totals: {
           totalSpend,
           totalRevenue: effectiveRev,

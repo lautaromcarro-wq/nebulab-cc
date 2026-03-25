@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { usePerformanceData, type CampaignRow, type PlatformTotals, type DailyPoint } from "@/hooks/usePerformanceData";
+import { useScorecard } from "@/hooks/useScorecard";
 import { useWorkspace, type PlatformFilter } from "@/contexts/WorkspaceContext";
 import { useClient } from "@/contexts/ClientContext";
 import SectionHeader from "@/components/SectionHeader";
 import EmptyState from "@/components/EmptyState";
 import { fmt, fmtCurrency, fmtCompact, fmtPercent } from "@/components/formatters";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,7 +48,8 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { ArrowUpRight, ArrowDownRight, Minus, Download, HelpCircle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Minus, Download, HelpCircle, Palette, ChevronDown, ChevronUp } from "lucide-react";
+import { CreativePreviewDrawer } from "@/components/CreativePreviewDrawer";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -107,9 +110,9 @@ function roasStatus(roas: number) {
 }
 
 function CampaignTable({
-  campaigns, isLeadGen,
+  campaigns, isLeadGen, onRowClick,
 }: {
-  campaigns: CampaignRow[]; isLeadGen: boolean;
+  campaigns: CampaignRow[]; isLeadGen: boolean; onRowClick?: (c: CampaignRow) => void;
 }) {
   const [sortKey, setSortKey] = useState<keyof CampaignRow>("spend");
   const [sortAsc, setSortAsc] = useState(false);
@@ -161,8 +164,17 @@ function CampaignTable({
       </TableHeader>
       <TableBody>
         {sorted.map((c) => (
-          <TableRow key={c.campaignId}>
-            <TableCell className="text-xs font-medium max-w-[220px] truncate">{c.campaignName}</TableCell>
+          <TableRow
+            key={c.campaignId}
+            className={cn(onRowClick && "cursor-pointer hover:bg-accent/30")}
+            onClick={() => onRowClick?.(c)}
+          >
+            <TableCell className="text-xs font-medium max-w-[220px]">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="truncate">{c.campaignName}</span>
+                {onRowClick && <Palette className="h-3 w-3 shrink-0 text-muted-foreground/40" />}
+              </div>
+            </TableCell>
             <TableCell className="text-xs tabular-nums">{fmtCurrency(c.spend)}</TableCell>
             <TableCell className="text-xs tabular-nums">{fmtCompact(c.impressions)}</TableCell>
             <TableCell className="text-xs tabular-nums">{fmtCompact(c.clicks)}</TableCell>
@@ -203,9 +215,10 @@ const metaChartConfig: ChartConfig = {
   revenue: { label: "Revenue", color: "hsl(var(--success))" },
 };
 
-function MetaTab({ totals, prevTotals, campaigns, daily, isLeadGen }: {
+function MetaTab({ totals, prevTotals, campaigns, daily, isLeadGen, onRowClick }: {
   totals: PlatformTotals; prevTotals: PlatformTotals;
   campaigns: CampaignRow[]; daily: DailyPoint[]; isLeadGen: boolean;
+  onRowClick?: (c: CampaignRow) => void;
 }) {
   if (campaigns.length === 0) {
     return <EmptyState title="Sin datos de Meta Ads" description="No hay campañas Meta en el período seleccionado." />;
@@ -290,10 +303,13 @@ function MetaTab({ totals, prevTotals, campaigns, daily, isLeadGen }: {
       {/* Campaign Table */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-bold uppercase tracking-wide">Detalle por Campaña</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-bold uppercase tracking-wide">Detalle por Campaña</CardTitle>
+            {onRowClick && <p className="text-[10px] text-muted-foreground">Click en fila para ver creatividades</p>}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          <CampaignTable campaigns={campaigns} isLeadGen={isLeadGen} />
+          <CampaignTable campaigns={campaigns} isLeadGen={isLeadGen} onRowClick={onRowClick} />
         </CardContent>
       </Card>
     </div>
@@ -307,9 +323,10 @@ const googleChartConfig: ChartConfig = {
   ctr: { label: "CTR %", color: "hsl(var(--success))" },
 };
 
-function GoogleTab({ totals, prevTotals, campaigns, daily, isLeadGen }: {
+function GoogleTab({ totals, prevTotals, campaigns, daily, isLeadGen, onRowClick }: {
   totals: PlatformTotals; prevTotals: PlatformTotals;
   campaigns: CampaignRow[]; daily: DailyPoint[]; isLeadGen: boolean;
+  onRowClick?: (c: CampaignRow) => void;
 }) {
   if (campaigns.length === 0) {
     return <EmptyState title="Sin datos de Google Ads" description="No hay campañas Google en el período seleccionado." />;
@@ -379,13 +396,95 @@ function GoogleTab({ totals, prevTotals, campaigns, daily, isLeadGen }: {
       {/* Campaign Table */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-bold uppercase tracking-wide">Detalle por Campaña</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-bold uppercase tracking-wide">Detalle por Campaña</CardTitle>
+            {onRowClick && <p className="text-[10px] text-muted-foreground">Click en fila para ver creatividades</p>}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          <CampaignTable campaigns={campaigns} isLeadGen={isLeadGen} />
+          <CampaignTable campaigns={campaigns} isLeadGen={isLeadGen} onRowClick={onRowClick} />
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ── Segment Overview ─────────────────────────────────────────────────────────
+
+const pacingColor = {
+  on_track: "text-success",
+  overpacing: "text-destructive",
+  underpacing: "text-warning",
+};
+
+const pacingLabel = {
+  on_track: "On Track",
+  overpacing: "Overpacing",
+  underpacing: "Underpacing",
+};
+
+function SegmentOverview() {
+  const { data: scorecard } = useScorecard();
+  const [open, setOpen] = useState(false);
+  const cards = scorecard?.cards ?? [];
+
+  if (cards.length === 0) return null;
+
+  return (
+    <Card>
+      <button
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/20 transition-colors"
+        onClick={() => setOpen(!open)}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-wide">Segments vs Budget</span>
+          <Badge variant="secondary" className="text-[9px] h-4 px-1">{cards.length}</Badge>
+        </div>
+        {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {open && (
+        <CardContent className="p-0 border-t">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="text-xs">Segmento</TableHead>
+                <TableHead className="text-xs">Spend</TableHead>
+                <TableHead className="text-xs">Budget</TableHead>
+                <TableHead className="text-xs">Uso</TableHead>
+                <TableHead className="text-xs">Pacing</TableHead>
+                <TableHead className="text-xs">ROAS</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {cards.map((card) => (
+                <TableRow key={card.segmentId}>
+                  <TableCell className="text-xs font-medium">{card.segmentName}</TableCell>
+                  <TableCell className="text-xs tabular-nums">{fmtCurrency(card.totalSpend, card.currency)}</TableCell>
+                  <TableCell className="text-xs tabular-nums text-muted-foreground">
+                    {card.monthlyBudget > 0 ? fmtCurrency(card.monthlyBudget, card.currency) : "–"}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {card.monthlyBudget > 0 ? (
+                      <div className="flex items-center gap-2 min-w-[80px]">
+                        <Progress value={Math.min(card.budgetUsedPercent, 100)} className="h-1.5 flex-1" />
+                        <span className="tabular-nums text-[10px] w-8 text-right">{card.budgetUsedPercent.toFixed(0)}%</span>
+                      </div>
+                    ) : "–"}
+                  </TableCell>
+                  <TableCell className={cn("text-xs font-medium", pacingColor[card.pacingStatus])}>
+                    {pacingLabel[card.pacingStatus]}
+                  </TableCell>
+                  <TableCell className={cn("text-xs tabular-nums", card.totalSpend > 0 ? roasStatus(card.roas) : "text-muted-foreground")}>
+                    {card.totalSpend > 0 ? `${fmt(card.roas, 2)}x` : "–"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      )}
+    </Card>
   );
 }
 
@@ -396,6 +495,7 @@ const Performance = () => {
   const { platformFilter, setPlatformFilter, dateRange } = useWorkspace();
   const { selectedClient } = useClient();
   const isLeadGen = selectedClient?.client_type === "lead_gen";
+  const [previewCampaign, setPreviewCampaign] = useState<CampaignRow | null>(null);
 
   const exportCSV = () => {
     if (!data) return;
@@ -460,6 +560,8 @@ const Performance = () => {
         }
       />
 
+      <SegmentOverview />
+
       {!data ? (
         <EmptyState title="Sin datos" description="No hay datos de performance para el período seleccionado." />
       ) : (
@@ -486,6 +588,7 @@ const Performance = () => {
               campaigns={data.meta.campaigns}
               daily={data.meta.daily}
               isLeadGen={isLeadGen}
+              onRowClick={(c) => setPreviewCampaign(c)}
             />
           </TabsContent>
 
@@ -496,10 +599,18 @@ const Performance = () => {
               campaigns={data.google.campaigns}
               daily={data.google.daily}
               isLeadGen={isLeadGen}
+              onRowClick={(c) => setPreviewCampaign(c)}
             />
           </TabsContent>
         </Tabs>
       )}
+
+      <CreativePreviewDrawer
+        campaignId={previewCampaign?.campaignId ?? null}
+        campaignName={previewCampaign?.campaignName ?? null}
+        open={!!previewCampaign}
+        onClose={() => setPreviewCampaign(null)}
+      />
     </div>
   );
 };
