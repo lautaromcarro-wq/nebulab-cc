@@ -52,13 +52,15 @@ import { ArrowUpRight, ArrowDownRight, Minus, Download, HelpCircle, Palette, Che
 import { CreativePreviewDrawer } from "@/components/CreativePreviewDrawer";
 import { cn } from "@/lib/utils";
 import { DeltaBadge } from "@/components/DeltaBadge";
+import { roasColor, ctrColor } from "@/lib/semaforo";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  label, value, prev, current, inverse = false, tooltip,
+  label, value, prev, current, inverse = false, tooltip, valueColor,
 }: {
-  label: string; value: string; prev: number; current: number; inverse?: boolean; tooltip?: string;
+  label: string; value: string; prev: number; current: number;
+  inverse?: boolean; tooltip?: string; valueColor?: string;
 }) {
   return (
     <Card>
@@ -74,7 +76,7 @@ function KpiCard({
             </Tooltip>
           )}
         </div>
-        <p className="text-xl font-bold tracking-tight">{value}</p>
+        <p className={cn("text-xl font-bold tracking-tight", valueColor)}>{value}</p>
         <div className="mt-1">
           <DeltaBadge current={current} prev={prev} inverse={inverse} />
         </div>
@@ -83,11 +85,6 @@ function KpiCard({
   );
 }
 
-function roasStatus(roas: number) {
-  if (roas >= 3) return "text-success font-bold";
-  if (roas >= 1) return "text-warning font-medium";
-  return "text-destructive";
-}
 
 function CampaignTable({
   campaigns, isLeadGen, onRowClick,
@@ -169,7 +166,7 @@ function CampaignTable({
                 <TableCell className="text-xs tabular-nums">{fmt(c.purchases)}</TableCell>
                 <TableCell className="text-xs tabular-nums">{fmtCurrency(c.revenue)}</TableCell>
                 <TableCell className="text-xs tabular-nums">{c.purchases > 0 ? fmtCurrency(c.cpa) : "–"}</TableCell>
-                <TableCell className={cn("text-xs tabular-nums", c.spend > 0 ? roasStatus(c.roas) : "text-muted-foreground")}>
+                <TableCell className={cn("text-xs tabular-nums", c.spend > 0 ? roasColor(c.roas) : "text-muted-foreground")}>
                   {c.spend > 0 ? `${fmt(c.roas, 2)}x` : "–"}
                 </TableCell>
               </>
@@ -229,12 +226,14 @@ function MetaTab({ totals, prevTotals, campaigns, daily, isLeadGen, onRowClick }
             value={`${fmt(totals.roas, 2)}x`}
             current={totals.roas} prev={prevTotals.roas}
             tooltip="Revenue plataforma / Spend. Validar contra GA4."
+            valueColor={roasColor(totals.roas)}
           />
         )}
         <KpiCard
           label="CTR link"
           value={fmtPercent(totals.ctr)}
           current={totals.ctr} prev={prevTotals.ctr}
+          valueColor={ctrColor(totals.ctr)}
         />
         <KpiCard
           label="CPC"
@@ -455,7 +454,7 @@ function SegmentOverview() {
                   <TableCell className={cn("text-xs font-medium", pacingColor[card.pacingStatus])}>
                     {pacingLabel[card.pacingStatus]}
                   </TableCell>
-                  <TableCell className={cn("text-xs tabular-nums", card.totalSpend > 0 ? roasStatus(card.roas) : "text-muted-foreground")}>
+                  <TableCell className={cn("text-xs tabular-nums", card.totalSpend > 0 ? roasColor(card.roas) : "text-muted-foreground")}>
                     {card.totalSpend > 0 ? `${fmt(card.roas, 2)}x` : "–"}
                   </TableCell>
                 </TableRow>
