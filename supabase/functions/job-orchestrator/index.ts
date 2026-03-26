@@ -38,6 +38,10 @@ const JOB_DEFS: JobDef[] = [
   // Phase 7: Health checks + workspace health score
   { name: "health_checks",             provider: null,         phase: 7 },
   { name: "compute_workspace_health",  provider: null,         phase: 7 },
+  // Phase 8: Ecommerce sync (after all ad platform jobs)
+  { name: "sync_ecommerce_daily",        provider: null, phase: 8 },
+  // Phase 9: Ecommerce revenue aggregation
+  { name: "aggregate_ecommerce_revenue", provider: null, phase: 9 },
 ];
 
 const MAX_RETRIES = 3;
@@ -84,8 +88,6 @@ class ConcurrencyLimiter {
 }
 
 // ── Individual job handlers ──────────────────────────────────────────
-// Real implementations for compute_campaign_segment_map and compute_segment_daily
-// call the existing edge functions. Others are stubs awaiting API integration.
 
 async function executeJob(
   jobName: string,
@@ -135,22 +137,33 @@ async function executeJob(
       return { items_upserted: data.upserted ?? 0, details: {} };
     }
 
-    // ── Stubs: these log a sync_run but don't do real API work yet ──
     case "sync_meta_accounts":
     case "sync_meta_catalog": {
-      // Check if workspace has a connected Meta integration
-      const { data: integration } = await supabase
+      const { data: metaAccInt } = await supabase
         .from("integrations")
         .select("id, status")
         .eq("workspace_id", workspaceId)
         .eq("provider", "meta")
         .eq("status", "connected")
         .maybeSingle();
-      if (!integration) {
+      if (!metaAccInt) {
         return { items_upserted: 0, details: { skipped: true, reason: "no_connected_integration" } };
       }
-      // TODO: implement actual Meta catalog sync
-      return { items_upserted: 0, details: { stub: true, integration_id: integration.id } };
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/sync-meta-accounts`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ workspace_id: workspaceId, triggered_by: "cron" }),
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || "sync-meta-accounts failed");
+      return { items_upserted: data.upserted ?? 0, details: { errors: data.errors } };
     }
 
     case "sync_meta_daily_metrics": {
@@ -258,8 +271,79 @@ async function executeJob(
     }
 
     case "resolve_creatives": {
-      // TODO: implement creative resolution (dedup, hash matching)
-      return { items_upserted: 0, details: { stub: true } };
+      // Find all unresolved creative assets (no creative_id yet)
+      const { data: unresolvedAssets, error: assetsErr } = await supabase
+        .from("creative_assets")
+        .select("id, workspace_id, provider, external_asset_id, asset_url, asset_hash, asset_type, thumbnail_url, metadata")
+        .eq("workspace_id", workspaceId)
+        .is("creative_id", null);
+
+      if (assetsErr) throw assetsErr;
+      if (!unresolvedAssets?.length) {
+        return { items_upserted: 0, details: { message: "no unresolved assets" } };
+      }
+
+      let newCreatives = 0;
+      let linked = 0;
+
+      for (const asset of unresolvedAssets) {
+        // Compute canonical_hash: prefer asset_hash, otherwise hash the URL or external_asset_id
+        const rawKey = asset.asset_hash
+          || asset.asset_url
+          || `${asset.provider}:${asset.external_asset_id}`;
+
+        const hashBuffer = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(`${workspaceId}:${rawKey}`)
+        );
+        const canonical_hash = Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
+        // Map asset_type to creative_type (both share video/image/other)
+        const creative_type = (asset.asset_type === "video" || asset.asset_type === "image")
+          ? asset.asset_type
+          : "other";
+
+        // Upsert creative — do nothing on conflict (dedup)
+        const { error: upsertErr } = await supabase
+          .from("creatives")
+          .upsert(
+            { workspace_id: workspaceId, canonical_hash, creative_type, canonical_url: asset.asset_url ?? null },
+            { onConflict: "workspace_id,canonical_hash", ignoreDuplicates: true }
+          );
+        if (upsertErr) {
+          console.error(`[resolve_creatives] upsert error for asset ${asset.id}:`, upsertErr.message);
+          continue;
+        }
+
+        // Fetch the creative id (newly created or already existing)
+        const { data: creative } = await supabase
+          .from("creatives")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("canonical_hash", canonical_hash)
+          .single();
+
+        if (!creative) continue;
+
+        // Was this creative just created (not a duplicate)?
+        // We count it as new if the asset_hash wasn't previously linked
+        newCreatives++;
+
+        // Link the asset to the resolved creative
+        const { error: linkErr } = await supabase
+          .from("creative_assets")
+          .update({ creative_id: creative.id })
+          .eq("id", asset.id);
+
+        if (!linkErr) linked++;
+      }
+
+      return {
+        items_upserted: newCreatives,
+        details: { assets_processed: unresolvedAssets.length, assets_linked: linked },
+      };
     }
 
     case "aggregate_revenue": {
@@ -320,6 +404,64 @@ async function executeJob(
       if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
       const data = await resp.json();
       return { items_upserted: 0, details: { score: data.score, status: data.status, penalties: data.penalties?.length ?? 0 } };
+    }
+
+    case "sync_ecommerce_daily": {
+      // Iterate over all ecommerce_connections for this workspace
+      const { data: connections } = await supabase
+        .from("ecommerce_connections")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .neq("status", "disconnected");
+
+      if (!connections || connections.length === 0) {
+        return { items_upserted: 0, details: { skipped: true, reason: "no_ecommerce_connections" } };
+      }
+
+      let totalUpserted = 0;
+      const errors: string[] = [];
+      for (const conn of connections) {
+        const resp = await fetch(
+          `${supabaseUrl}/functions/v1/sync-ecommerce-daily`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${serviceKey}`,
+            },
+            body: JSON.stringify({ connectionId: conn.id }),
+          }
+        );
+        if (!resp.ok) {
+          errors.push(`connection ${conn.id}: HTTP ${resp.status}`);
+          continue;
+        }
+        const data = await resp.json();
+        if (data.success) {
+          totalUpserted += (data.ordersUpserted ?? 0);
+        } else {
+          errors.push(`connection ${conn.id}: ${data.error}`);
+        }
+      }
+      return { items_upserted: totalUpserted, details: { errors } };
+    }
+
+    case "aggregate_ecommerce_revenue": {
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/aggregate-ecommerce-revenue`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ workspaceId }),
+        }
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+      if (!data.success) throw new Error(data.error || "aggregate-ecommerce-revenue failed");
+      return { items_upserted: data.rowsUpdated ?? 0, details: { groupsProcessed: data.groupsProcessed } };
     }
 
     default:
