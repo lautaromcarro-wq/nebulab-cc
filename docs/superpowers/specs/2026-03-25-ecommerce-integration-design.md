@@ -35,23 +35,20 @@ workspace_revenue_daily  ← scorecard reads MAX priority source per (workspace_
 
 ## Database Changes
 
-### New column: `workspace_revenue_daily.ecommerce_revenue`
-**Do NOT change the PK or add a `revenue_source` column.** Reason: the existing ENUM type `public.revenue_source` already exists with values `shopify | manual | csv | erp`, and `aggregate-revenue/index.ts` upserts with `onConflict: "workspace_id,date"` — changing the PK would break that function immediately.
+### `workspace_revenue_daily` — zero schema changes needed
 
-Instead, add two new nullable columns to the existing table:
+The table already has `source_breakdown: JsonB` (e.g. `{"meta": 1000, "google_ads": 500}`). The existing `aggregate-revenue` function writes this field and upserts with `onConflict: "workspace_id,date"`.
+
+`aggregate-ecommerce-revenue` does a simple **UPDATE** (not upsert) on the existing row:
 ```sql
-ALTER TABLE workspace_revenue_daily
-  ADD COLUMN ecommerce_revenue NUMERIC,
-  ADD COLUMN ecommerce_orders_count INT;
+UPDATE workspace_revenue_daily
+SET source_breakdown = source_breakdown || '{"ecommerce": <total>}'::jsonb
+WHERE workspace_id = $wsId AND date = $date;
 ```
 
-The scorecard reads the higher-priority value:
-```sql
-COALESCE(ecommerce_revenue, total_revenue) AS effective_revenue
-```
-When ecommerce is connected for a client, `aggregate-ecommerce-revenue` writes `ecommerce_revenue`. The existing `aggregate-revenue` (GA4) continues writing `total_revenue` unchanged — zero breaking changes to existing code.
+Or via Supabase client using `rpc` or a targeted update. **No schema changes. No PK changes. No breaking changes to `aggregate-revenue/index.ts`.**
 
-The `onConflict` in `aggregate-revenue/index.ts` is untouched. The new function uses the same PK `(workspace_id, date)` for its upsert, writing only the new columns.
+The scorecard (`useScorecard`) already reads `source_breakdown` — it now additionally checks for `source_breakdown.ecommerce`. If present, it uses that value as `effective_revenue` instead of `total_revenue` (GA4). If absent, falls back to `total_revenue` as before.
 
 ### New table: `ecommerce_connections`
 ```sql
@@ -208,13 +205,17 @@ Phase 9: single invocation of `aggregate-ecommerce-revenue` with `workspaceId`. 
 
 ## Revenue Coexistence (GA4 + Ecommerce)
 
-`workspace_revenue_daily` stores one row per `(workspace_id, client_id, date, revenue_source)`.
+`workspace_revenue_daily` stores one row per `(workspace_id, date)` (existing PK — unchanged).
 
-The `workspace_revenue_daily` table now has both `total_revenue` (from GA4) and `ecommerce_revenue` (from Tiendanube/WooCommerce). The scorecard uses `COALESCE(ecommerce_revenue, total_revenue)` as `effective_revenue`.
+The `source_breakdown` JSONB column already holds per-provider breakdowns (e.g. `{"meta": 1000, "google_ads": 500}`). `aggregate-ecommerce-revenue` merges `{"ecommerce": Z}` into this object via UPDATE — no new columns, no PK changes.
 
-In `useScorecard`, the Supabase query returns both columns. The hook selects `ecommerce_revenue ?? total_revenue` per row when aggregating. No schema breaking changes required.
+In `useScorecard`, each row already returns `source_breakdown`. The hook now reads:
+```typescript
+const effectiveRevenue = (row.source_breakdown as any)?.ecommerce ?? row.total_revenue;
+```
+Falls back to GA4 `total_revenue` automatically when ecommerce is not synced.
 
-**UI indicator:** When `ecommerce_revenue` is non-null for the selected client, the "Revenue GA4" label on Home Hero KPIs changes to "Revenue Real 🛍". Tooltip explains: "Revenue de Tiendanube/WooCommerce (dato real de tienda)".
+**UI indicator:** When `source_breakdown.ecommerce` is present for any row in the selected date range, the Home Hero KPI label changes from "Revenue GA4" to "Revenue Real 🛍". Tooltip: "Revenue real de tienda (Tiendanube/WooCommerce)".
 
 ---
 
