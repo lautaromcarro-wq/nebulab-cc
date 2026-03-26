@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { useClient } from "@/contexts/ClientContext";
+import AiAnalyst from "@/components/AiAnalyst";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fmt, fmtCurrency, fmtCompact, fmtPercent } from "@/components/formatters";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -59,6 +60,8 @@ import {
   CreditCard,
   Receipt,
   Pencil,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -88,6 +91,160 @@ const finFields: Array<{ key: keyof FinSettings; label: string; desc: string }> 
   { key: "refund_percent", label: "Devoluciones (%)", desc: "Tasa reembolsos" },
   { key: "iva_percent", label: "IVA (%)", desc: "Impuestos" },
 ];
+
+function EcommerceTab({ clientId, workspaceId }: { clientId: string; workspaceId: string }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    provider: "tiendanube",
+    store_url: "",
+    api_key: "",
+    api_secret: "",
+  });
+  const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const { data: connection } = useQuery({
+    queryKey: ["ecommerce-connection", workspaceId, clientId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("ecommerce_connections")
+        .select("*")
+        .eq("workspace_id", workspaceId)
+        .eq("client_id", clientId)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  // Pre-fill form from existing connection
+  useEffect(() => {
+    if (connection) {
+      setForm({
+        provider: connection.provider,
+        store_url: connection.store_url,
+        api_key: connection.api_key,
+        api_secret: connection.api_secret ?? "",
+      });
+    }
+  }, [connection]);
+
+  const handleSave = async () => {
+    if (!form.store_url || !form.api_key) {
+      toast.error("Store URL y API Key son requeridos");
+      return;
+    }
+    setSaving(true);
+    const { error } = await (supabase as any).from("ecommerce_connections").upsert({
+      workspace_id: workspaceId,
+      client_id: clientId,
+      provider: form.provider,
+      store_url: form.store_url,
+      api_key: form.api_key,
+      api_secret: form.api_secret || null,
+      status: "disconnected",
+    }, { onConflict: "workspace_id,client_id,provider" });
+    setSaving(false);
+    if (error) { toast.error("Error al guardar"); return; }
+    toast.success("Conexión guardada");
+    qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+  };
+
+  const handleTest = async () => {
+    if (!connection?.id) { toast.error("Guardá primero la conexión"); return; }
+    setTesting(true);
+    const { data: fnResult, error } = await supabase.functions.invoke("sync-ecommerce-daily", {
+      body: { connectionId: connection.id, testOnly: true },
+    });
+    setTesting(false);
+    if (error || !fnResult?.success) {
+      toast.error(`Error: ${error?.message ?? fnResult?.error ?? "desconocido"}`);
+    } else {
+      toast.success(`Conexión exitosa — ${fnResult.ordersFound} órdenes encontradas`);
+      qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+    }
+  };
+
+  const statusConfig: Record<string, { label: string; className: string }> = {
+    connected: { label: "Conectado", className: "bg-success/10 text-success" },
+    error: { label: "Error", className: "bg-destructive/10 text-destructive" },
+    disconnected: { label: "Desconectado", className: "bg-muted text-muted-foreground" },
+  };
+  const statusCfg = statusConfig[connection?.status ?? "disconnected"] ?? statusConfig.disconnected;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm">Tienda Online</CardTitle>
+            {connection && (
+              <Badge variant="secondary" className={cn("text-xs border-0", statusCfg.className)}>
+                {statusCfg.label}
+              </Badge>
+            )}
+          </div>
+          {connection?.last_sync_at && (
+            <CardDescription className="text-[11px]">
+              Último sync: {connection.last_sync_at.split("T")[0]}
+            </CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {connection?.status === "error" && connection.last_error && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <p className="text-xs text-destructive">{connection.last_error}</p>
+            </div>
+          )}
+
+          <div>
+            <Label>Plataforma</Label>
+            <Select value={form.provider} onValueChange={(v) => setForm((p) => ({ ...p, provider: v }))}>
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tiendanube">Tiendanube</SelectItem>
+                <SelectItem value="woocommerce" disabled>WooCommerce (próximamente)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label>Store ID / URL</Label>
+            <Input
+              className="mt-1"
+              placeholder="Ej: 123456"
+              value={form.store_url}
+              onChange={(e) => setForm((p) => ({ ...p, store_url: e.target.value }))}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">El Store ID numérico de tu tienda Tiendanube.</p>
+          </div>
+
+          <div>
+            <Label>API Key (User Token)</Label>
+            <Input
+              className="mt-1"
+              type="password"
+              placeholder="••••••••••••••••"
+              value={form.api_key}
+              onChange={(e) => setForm((p) => ({ ...p, api_key: e.target.value }))}
+            />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button className="flex-1" onClick={handleSave} disabled={saving}>
+              {saving ? "Guardando…" : "Guardar"}
+            </Button>
+            <Button variant="outline" onClick={handleTest} disabled={testing || !connection?.id}>
+              {testing ? "Probando…" : "Probar Conexión"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default function ClientHub() {
   const { selectedClient, refetch } = useClient();
@@ -266,6 +423,9 @@ export default function ClientHub() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="bg-muted/50">
+          <TabsTrigger value="ai-analyst" className="text-xs gap-1.5 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+            <Sparkles className="h-3.5 w-3.5" />AI Analyst
+          </TabsTrigger>
           <TabsTrigger value="overview" className="text-xs gap-1.5">
             <FileText className="h-3.5 w-3.5" />Datos
           </TabsTrigger>
@@ -315,8 +475,14 @@ export default function ClientHub() {
           <TabsTrigger value="accesos" className="text-xs gap-1.5">
             <KeyRound className="h-3.5 w-3.5" />Accesos
           </TabsTrigger>
+          <TabsTrigger value="ecommerce" className="text-xs gap-1.5">
+            <ShoppingCart className="h-3.5 w-3.5" />Tienda Online
+          </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="ai-analyst">
+          <AiAnalyst />
+        </TabsContent>
         <TabsContent value="overview">
           <ClientOverviewTab client={selectedClient} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} refetch={refetch} setActiveTab={setActiveTab} />
         </TabsContent>
@@ -365,6 +531,9 @@ export default function ClientHub() {
         </TabsContent>
         <TabsContent value="accesos">
           <ClientAccesosTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
+        </TabsContent>
+        <TabsContent value="ecommerce">
+          <EcommerceTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1614,6 +1783,7 @@ function ClientBitacoraTab({ clientId, workspaceId, isAdmin }: { clientId: strin
   const [accionables, setAccionables] = useState<any[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [loadingAcc, setLoadingAcc] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Bitácora form
   const [entryForm, setEntryForm] = useState({ type: "nota", title: "", body: "", author_name: "" });
@@ -1625,15 +1795,24 @@ function ClientBitacoraTab({ clientId, workspaceId, isAdmin }: { clientId: strin
   const setAF = (k: string, v: string) => setAccForm((f) => ({ ...f, [k]: v }));
 
   const fetchEntries = async () => {
-    const { data } = await supabase.from("client_bitacora").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("client_bitacora").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+    if (error) console.error("Error fetching client_bitacora:", error);
     setEntries(data ?? []);
     setLoadingEntries(false);
   };
 
   const fetchAccionables = async () => {
-    const { data } = await supabase.from("client_accionables").select("*").eq("client_id", clientId).order("due_date", { ascending: true }).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("client_accionables").select("*").eq("client_id", clientId).order("due_date", { ascending: true }).order("created_at", { ascending: false });
+    if (error) console.error("Error fetching client_accionables:", error);
     setAccionables(data ?? []);
     setLoadingAcc(false);
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await Promise.all([fetchEntries(), fetchAccionables()]);
+    setIsRefreshing(false);
+    toast.success("Datos actualizados");
   };
 
   useEffect(() => { fetchEntries(); fetchAccionables(); }, [clientId]);
@@ -1691,6 +1870,19 @@ function ClientBitacoraTab({ clientId, workspaceId, isAdmin }: { clientId: strin
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end mb-2">
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh} 
+          disabled={isRefreshing}
+          className="gap-2 h-8 text-xs bg-card"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+          Actualizar
+        </Button>
+      </div>
+
       {/* ── Accionables ── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">

@@ -26,7 +26,10 @@ function matchesRule(campaignName: string, rule: SegmentRule): boolean {
       return name.startsWith(value);
     case "regex":
       try { return new RegExp(rule.rule_value, "i").test(campaignName); }
-      catch { return false; }
+      catch (e) {
+        console.warn(`[segment] Invalid regex in rule "${rule.rule_value}":`, e);
+        return false;
+      }
     case "in_list":
       return rule.rule_value.split(",").map(s => s.trim().toLowerCase()).includes(name);
     default:

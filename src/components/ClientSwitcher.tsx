@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useClient } from "@/contexts/ClientContext";
+import { useClient, type Client } from "@/contexts/ClientContext";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -42,7 +42,7 @@ const ClientSwitcher = () => {
     } else {
       toast.success("Cliente creado");
       refetch();
-      if (data) setSelectedClient(data as any);
+      if (data) setSelectedClient(data as Client);
       setName("");
       setOpen(false);
     }

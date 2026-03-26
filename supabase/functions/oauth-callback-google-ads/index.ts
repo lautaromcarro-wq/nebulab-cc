@@ -247,7 +247,6 @@ async function discoverMccClients(
       }
     );
 
-    // FIX: Check HTTP status before parsing JSON
     if (!searchRes.ok) {
       const errText = await searchRes.text();
       console.error("[discovery] searchStream HTTP error:", searchRes.status, errText.substring(0, 1000));
@@ -395,7 +394,6 @@ async function discoverMccClients(
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error("[discovery] MCC discovery error:", errMsg);
-    // FIX: Don't use .catch() on supabase — just await and ignore error
     const insertResult = await supabase.from("health_events").insert({
       workspace_id: workspaceId,
       check_type: "google_ads_discovery",

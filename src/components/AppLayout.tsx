@@ -18,6 +18,7 @@ import {
   PiggyBank,
   CheckSquare,
   LineChart,
+  ShoppingCart,
   Mail,
   Sliders,
   PanelLeftClose,
@@ -48,6 +49,7 @@ const navItems: NavItem[] = [
   { type: "section", label: "Performance" },
   { type: "link", to: "/performance", label: "Performance", icon: BarChart3 },
   { type: "link", to: "/analytics", label: "Analytics", icon: LineChart },
+  { type: "link", to: "/ecommerce", label: "Ecommerce", icon: ShoppingCart },
   { type: "link", to: "/budget", label: "Budget Tracker", icon: PiggyBank },
   { type: "link", to: "/creatives", label: "Creativos", icon: Palette },
 

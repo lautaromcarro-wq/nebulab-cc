@@ -43,12 +43,18 @@ Deno.serve(async (req) => {
       .from("client_access_tokens")
       .update({ last_accessed_at: new Date().toISOString() })
       .eq("id", tokenRow.id)
-      .then(() => {});
+      .then(() => {})
+      .catch((e) => console.warn("[dashboard] Failed to update last_accessed_at:", e));
 
     const clientId = tokenRow.client_id;
     const wsId = tokenRow.workspace_id;
-    const clientName = (tokenRow.clients as any)?.name ?? "Cliente";
-    const workspaceName = (tokenRow.workspaces as any)?.name ?? "Agencia";
+    type TokenRowWithRelations = typeof tokenRow & {
+      clients: { name: string } | null;
+      workspaces: { name: string } | null;
+    };
+    const row = tokenRow as TokenRowWithRelations;
+    const clientName = row.clients?.name ?? "Cliente";
+    const workspaceName = row.workspaces?.name ?? "Agencia";
 
     // Default: last 30 days
     const toDate = to ?? new Date().toISOString().split("T")[0];

@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.generate-experiment-insight]
 verify_jwt = false
+
+[functions.ai-analyst]
+verify_jwt = false
