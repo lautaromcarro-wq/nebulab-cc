@@ -70,8 +70,8 @@ export function useScorecard() {
 
   return useQuery({
     queryKey: ["scorecard", currentWorkspace?.id, clientId, selectedSegmentId, fromStr, toStr],
-    queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals; prevTotals: ScorecardTotals; daily: ScorecardDaily[] }> => {
-      if (!currentWorkspace) return { cards: [], totals: emptyTotals(), prevTotals: emptyTotals(), daily: [] };
+    queryFn: async (): Promise<{ cards: SegmentScorecard[]; totals: ScorecardTotals; prevTotals: ScorecardTotals; daily: ScorecardDaily[]; hasEcommerceRevenue: boolean }> => {
+      if (!currentWorkspace) return { cards: [], totals: emptyTotals(), prevTotals: emptyTotals(), daily: [], hasEcommerceRevenue: false };
 
       // Filter segments by client if selected
       const filteredSegments = segments.filter((s) => {
@@ -98,7 +98,7 @@ export function useScorecard() {
 
       let revQuery = supabase
         .from("workspace_revenue_daily")
-        .select("*")
+        .select("date, total_revenue, total_purchases, source_breakdown, client_id")
         .eq("workspace_id", currentWorkspace.id)
         .gte("date", fromStr)
         .lte("date", toStr);
@@ -241,7 +241,14 @@ export function useScorecard() {
         { totalSpend: 0, totalRevenue: 0, totalImpressions: 0, totalClicks: 0, totalPurchases: 0, totalSpendMeta: 0, totalSpendGoogle: 0, totalRevPlatform: 0, totalRevGa4: 0 },
       );
 
-      const effectiveRevGa4 = totalRevGa4 > 0 ? totalRevGa4 : wsRevenueGa4;
+      // Check if any revenue row has ecommerce data
+      const wsEcommerceRevenue = revenueRows.reduce((s, r) => {
+        const breakdown = (r as any).source_breakdown as Record<string, number> | null;
+        return s + (breakdown?.ecommerce ?? 0);
+      }, 0);
+      const effectiveRevGa4 = wsEcommerceRevenue > 0
+        ? wsEcommerceRevenue
+        : (totalRevGa4 > 0 ? totalRevGa4 : wsRevenueGa4);
       const effectiveRev = totalRevenue > 0 ? totalRevenue : wsRevenueGa4;
 
       // Contribution margin calculation
@@ -280,6 +287,7 @@ export function useScorecard() {
       return {
         cards,
         daily,
+        hasEcommerceRevenue: wsEcommerceRevenue > 0,
         prevTotals: {
           totalSpend: prevTotalSpend,
           totalRevenue: prevRevenue,

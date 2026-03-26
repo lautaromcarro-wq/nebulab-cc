@@ -372,6 +372,7 @@ const Home = () => {
   const { segments, loading: wsLoading, currentWorkspace } = useWorkspace();
   const { clients, selectedClient } = useClient();
   const { data: scorecard, isLoading } = useScorecard();
+  const hasEcommerceRevenue = scorecard?.hasEcommerceRevenue ?? false;
   const prevTotals = scorecard?.prevTotals;
   const { data: platform, isLoading: platformLoading } = usePlatformMetrics();
   const { data: health } = useWorkspaceHealth();
@@ -448,7 +449,7 @@ const Home = () => {
               {/* Hero KPIs */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="relative">
-                  <StatCard icon={DollarSign} label="Revenue GA4" value={fmtCurrency(totals.revenueGa4)} status="success" hero />
+                  <StatCard icon={DollarSign} label={hasEcommerceRevenue ? "Revenue Real" : "Revenue GA4"} value={fmtCurrency(totals.revenueGa4)} status="success" hero />
                   {prevTotals && <div className="absolute bottom-3 right-3"><DeltaBadge current={totals.revenueGa4} prev={prevTotals.revenueGa4} /></div>}
                 </div>
                 <div className="relative">
