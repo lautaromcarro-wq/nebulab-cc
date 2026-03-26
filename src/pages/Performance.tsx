@@ -51,29 +51,9 @@ import {
 import { ArrowUpRight, ArrowDownRight, Minus, Download, HelpCircle, Palette, ChevronDown, ChevronUp } from "lucide-react";
 import { CreativePreviewDrawer } from "@/components/CreativePreviewDrawer";
 import { cn } from "@/lib/utils";
+import { DeltaBadge } from "@/components/DeltaBadge";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function delta(current: number, prev: number) {
-  if (prev === 0) return null;
-  return ((current - prev) / prev) * 100;
-}
-
-function DeltaBadge({ current, prev, inverse = false }: { current: number; prev: number; inverse?: boolean }) {
-  const d = delta(current, prev);
-  if (d === null) return <span className="text-[10px] text-muted-foreground">–</span>;
-  const positive = inverse ? d < 0 : d > 0;
-  const neutral = Math.abs(d) < 0.5;
-  return (
-    <span className={cn(
-      "inline-flex items-center gap-0.5 text-[10px] font-medium",
-      neutral ? "text-muted-foreground" : positive ? "text-success" : "text-destructive",
-    )}>
-      {neutral ? <Minus className="h-2.5 w-2.5" /> : positive ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
-      {Math.abs(d).toFixed(1)}%
-    </span>
-  );
-}
 
 function KpiCard({
   label, value, prev, current, inverse = false, tooltip,
