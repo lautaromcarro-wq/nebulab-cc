@@ -42,13 +42,19 @@ import {
 } from "@/components/ui/chart";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 import { DollarSign, TrendingUp, Percent, Plus, ShoppingCart, AlertTriangle } from "lucide-react";
-import { format } from "date-fns";
+import { format, differenceInDays, subDays } from "date-fns";
+import { DeltaBadge } from "@/components/DeltaBadge";
+import { marginColor } from "@/lib/semaforo";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const chartConfig: ChartConfig = {
   revenue: { label: "Revenue", color: "hsl(var(--success))" },
   spend: { label: "Ad Spend", color: "hsl(var(--primary))" },
 };
+
+type RevenueRow = { date: string; total_revenue: number; total_purchases: number; client_id: string | null };
+type FinanceCostType = "cogs" | "shipping" | "platform_fees" | "taxes" | "fulfillment" | "other";
 
 // Matches DB enum: cogs | shipping | platform_fees | taxes | fulfillment | other
 const costTypeOptions = [
@@ -89,6 +95,11 @@ interface FinanceData {
   costRows: CostRow[];
   daily: Array<{ date: string; revenue: number; spend: number }>;
   finSettings: FinancialSettings;
+  // prev period
+  prevRevenue: number;
+  prevSpend: number;
+  prevContributionMargin: number;
+  prevMarginPercent: number;
 }
 
 const defaultFinSettings: FinancialSettings = {
@@ -111,7 +122,11 @@ function useFinanceData() {
     queryFn: async (): Promise<FinanceData> => {
       if (!currentWorkspace) return emptyFinance();
 
-      const [revResult, costsResult, perfResult, finResult] = await Promise.all([
+      const daysCount = differenceInDays(dateRange.to, dateRange.from) + 1;
+      const prevFromStr = format(subDays(dateRange.from, daysCount), "yyyy-MM-dd");
+      const prevToStr = format(subDays(dateRange.from, 1), "yyyy-MM-dd");
+
+      const [revResult, costsResult, perfResult, finResult, prevRevResult, prevPerfResult] = await Promise.all([
         // Revenue filtered by client via workspace_revenue_daily
         (() => {
           let q = supabase
@@ -120,7 +135,8 @@ function useFinanceData() {
             .eq("workspace_id", currentWorkspace.id)
             .gte("date", fromStr)
             .lte("date", toStr);
-          if (clientId) q = (q as any).eq("client_id", clientId);
+          // workspace_revenue_daily may lack client_id in generated types; cast is intentional
+          if (clientId) q = (q as unknown as typeof q).eq("client_id", clientId);
           return q;
         })(),
         // Additional manual costs (workspace-level, no client_id in schema)
@@ -159,6 +175,28 @@ function useFinanceData() {
             .maybeSingle();
           return data;
         })(),
+        // 5th: prev revenue
+        (() => {
+          let q = supabase
+            .from("workspace_revenue_daily")
+            .select("date, total_revenue, total_purchases, client_id")
+            .eq("workspace_id", currentWorkspace.id)
+            .gte("date", prevFromStr)
+            .lte("date", prevToStr);
+          if (clientId) q = (q as unknown as typeof q).eq("client_id", clientId);
+          return q;
+        })(),
+        // 6th: prev spend
+        (() => {
+          let q = supabase
+            .from("performance_daily")
+            .select("date, spend")
+            .eq("workspace_id", currentWorkspace.id)
+            .gte("date", prevFromStr)
+            .lte("date", prevToStr);
+          if (clientId) q = q.eq("client_id", clientId);
+          return q;
+        })(),
       ]);
 
       const revenueRows = revResult.data ?? [];
@@ -172,8 +210,9 @@ function useFinanceData() {
         iva_percent: Number(finResult.iva_percent) || 0,
       } : defaultFinSettings;
 
-      const totalRevenue = revenueRows.reduce((s: number, r: any) => s + (Number(r.total_revenue) || 0), 0);
-      const orders = revenueRows.reduce((s: number, r: any) => s + (Number(r.total_purchases) || 0), 0);
+      const typedRevenueRows = revenueRows as RevenueRow[];
+      const totalRevenue = typedRevenueRows.reduce((s, r) => s + (Number(r.total_revenue) || 0), 0);
+      const orders = typedRevenueRows.reduce((s, r) => s + (Number(r.total_purchases) || 0), 0);
 
       // Aggregate spend
       const spendByDate = new Map<string, number>();
@@ -198,11 +237,11 @@ function useFinanceData() {
 
       // Daily chart data
       const allDates = new Set([
-        ...revenueRows.map((r: any) => r.date),
+        ...typedRevenueRows.map((r) => r.date),
         ...Array.from(spendByDate.keys()),
       ]);
       const revByDate = new Map<string, number>();
-      for (const r of revenueRows as any[]) {
+      for (const r of typedRevenueRows) {
         revByDate.set(r.date, (revByDate.get(r.date) ?? 0) + (Number(r.total_revenue) || 0));
       }
       const daily = Array.from(allDates).sort().map((date) => ({
@@ -211,14 +250,37 @@ function useFinanceData() {
         spend: spendByDate.get(date) ?? 0,
       }));
 
-      return { totalRevenue, totalSpend, totalAdditionalCosts, contributionMargin, marginPercent, orders, costRows, daily, finSettings };
+      // Prev period computations
+      const prevRevenueRows = (prevRevResult.data ?? []) as RevenueRow[];
+      const prevRevenue = prevRevenueRows.reduce((s, r) => s + (Number(r.total_revenue) || 0), 0);
+      const prevPerfRows = prevPerfResult.data ?? [];
+      const prevSpendByDate = new Map<string, number>();
+      for (const p of prevPerfRows) {
+        prevSpendByDate.set(p.date, (prevSpendByDate.get(p.date) ?? 0) + (Number(p.spend) || 0));
+      }
+      const prevSpend = Array.from(prevSpendByDate.values()).reduce((s, v) => s + v, 0);
+      const prevSettingsDeductions =
+        prevRevenue * (finSettings.avg_cogs_percent / 100) +
+        prevRevenue * (finSettings.shipping_percent / 100) +
+        prevRevenue * (finSettings.payment_fee_percent / 100) +
+        prevRevenue * (finSettings.refund_percent / 100) +
+        prevRevenue * (finSettings.iva_percent / 100);
+      const prevContributionMargin = prevRevenue - prevSpend - prevSettingsDeductions;
+      const prevMarginPercent = prevRevenue > 0 ? (prevContributionMargin / prevRevenue) * 100 : 0;
+
+      return { totalRevenue, totalSpend, totalAdditionalCosts, contributionMargin, marginPercent, orders, costRows, daily, finSettings, prevRevenue, prevSpend, prevContributionMargin, prevMarginPercent };
     },
     enabled: !!currentWorkspace,
   });
 }
 
 function emptyFinance(): FinanceData {
-  return { totalRevenue: 0, totalSpend: 0, totalAdditionalCosts: 0, contributionMargin: 0, marginPercent: 0, orders: 0, costRows: [], daily: [], finSettings: defaultFinSettings };
+  return {
+    totalRevenue: 0, totalSpend: 0, totalAdditionalCosts: 0,
+    contributionMargin: 0, marginPercent: 0, orders: 0,
+    costRows: [], daily: [], finSettings: defaultFinSettings,
+    prevRevenue: 0, prevSpend: 0, prevContributionMargin: 0, prevMarginPercent: 0,
+  };
 }
 
 function AddCostDialog({ workspaceId, onSuccess }: { workspaceId: string; onSuccess: () => void }) {
@@ -239,11 +301,11 @@ function AddCostDialog({ workspaceId, onSuccess }: { workspaceId: string; onSucc
       workspace_id: workspaceId,
       date: form.date,
       amount: Number(form.amount),
-      cost_type: form.cost_type as any,
+      cost_type: form.cost_type as FinanceCostType,
       product_category: form.cost_type === "cogs" && form.product_category.trim() ? form.product_category.trim() : null,
       notes: form.notes || null,
       currency: "USD",
-    } as any);
+    });
     setLoading(false);
     if (error) { toast.error("Error al guardar"); return; }
     toast.success("Costo guardado");
@@ -374,23 +436,38 @@ const Finance = () => {
         <>
           {/* Hero KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard icon={DollarSign} label="Revenue" value={fmtCurrency(data!.totalRevenue)} status="success" hero />
-            <StatCard icon={DollarSign} label="Ad Spend" value={fmtCurrency(data!.totalSpend)} status="primary" hero />
-            <StatCard
-              icon={TrendingUp}
-              label="Contribution Margin"
-              value={fmtCurrency(data!.contributionMargin)}
-              status={data!.contributionMargin >= 0 ? "success" : "destructive"}
-              hero
-            />
-            <StatCard
-              icon={Percent}
-              label="Margin %"
-              value={`${fmt(data!.marginPercent, 1)}%`}
-              subtitle="CM / Revenue"
-              status={data!.marginPercent >= 20 ? "success" : data!.marginPercent >= 0 ? "warning" : "destructive"}
-              hero
-            />
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Revenue</p>
+                <p className="text-xl font-bold text-success">{fmtCurrency(data!.totalRevenue)}</p>
+                <div className="mt-1"><DeltaBadge current={data!.totalRevenue} prev={data!.prevRevenue} /></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Ad Spend</p>
+                <p className="text-xl font-bold text-primary">{fmtCurrency(data!.totalSpend)}</p>
+                <div className="mt-1"><DeltaBadge current={data!.totalSpend} prev={data!.prevSpend} inverse /></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Contribution Margin</p>
+                <p className={cn("text-xl font-bold", data!.contributionMargin >= 0 ? "text-success" : "text-destructive")}>
+                  {fmtCurrency(data!.contributionMargin)}
+                </p>
+                <div className="mt-1"><DeltaBadge current={data!.contributionMargin} prev={data!.prevContributionMargin} /></div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Margin %</p>
+                <p className={cn("text-xl font-bold", marginColor(data!.marginPercent))}>
+                  {fmt(data!.marginPercent, 1)}%
+                </p>
+                <div className="mt-1"><DeltaBadge current={data!.marginPercent} prev={data!.prevMarginPercent} /></div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Secondary KPIs */}
