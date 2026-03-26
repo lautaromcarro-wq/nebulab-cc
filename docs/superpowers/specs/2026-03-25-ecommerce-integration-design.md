@@ -15,20 +15,20 @@ Integrate ecommerce store data (orders, products, customers, abandoned carts) in
 
 ### Approach: Dedicated schema + bridge to existing revenue pipeline
 
-All ecommerce data lives in 4 new tables isolated from ads data. A daily aggregation job writes order revenue into `workspace_revenue_daily` using a dedicated `revenue_source = 'ecommerce'` row (see §Revenue coexistence). The scorecard queries the highest-priority source automatically.
+All ecommerce data lives in 4 new tables isolated from ads data. A daily aggregation job merges order revenue into the existing `source_breakdown` JSONB column of `workspace_revenue_daily` — zero schema changes. The scorecard reads `source_breakdown.ecommerce` when available, falls back to GA4 `total_revenue`.
 
 ### Data Flow
 
 ```
 Tiendanube API / WooCommerce REST API
-        ↓ (API key or token per client, stored as plaintext with RLS — same pattern as rest of system)
-sync-ecommerce-daily (Supabase Edge Function, runs daily via job-orchestrator phase 3)
+        ↓ (API key per client, stored as plaintext with RLS — same as rest of system)
+sync-ecommerce-daily (Supabase Edge Function, job-orchestrator phase 8)
         ↓ upsert
 ecommerce_orders · ecommerce_products · ecommerce_customers · ecommerce_carts
         ↓
-aggregate-ecommerce-revenue (job-orchestrator phase 4, runs after sync)
-        ↓ upsert with revenue_source = 'ecommerce'
-workspace_revenue_daily  ← scorecard reads MAX priority source per (workspace_id, client_id, date)
+aggregate-ecommerce-revenue (job-orchestrator phase 9, runs after phase 8)
+        ↓ UPDATE source_breakdown = source_breakdown || '{"ecommerce": total}'
+workspace_revenue_daily  ← scorecard reads source_breakdown.ecommerce ?? total_revenue
 ```
 
 ---
@@ -253,10 +253,11 @@ API keys stored as plaintext `TEXT` columns with Row Level Security, identical t
 ---
 
 ## V1 Scope (Tiendanube)
-- Migration: new tables + `workspace_revenue_daily.revenue_source` column
+- Migration: new tables only (`ecommerce_connections`, `ecommerce_orders`, `ecommerce_order_items`, `ecommerce_products`, `ecommerce_customers`, `ecommerce_carts`) — no changes to `workspace_revenue_daily`
 - `sync-ecommerce-daily` with Tiendanube fetcher + 30-day backfill on first run
-- `aggregate-ecommerce-revenue` with customer segmentation
-- `job-orchestrator` phase 3+4 additions
+- `aggregate-ecommerce-revenue` with customer segmentation — UPDATEs `source_breakdown` JSONB
+- `job-orchestrator` phase 8+9 additions
+- `useScorecard` must add `source_breakdown` to its select query
 - `/ecommerce` page: KPI strip + 4 tabs
 - Client Hub: connection UI for Tiendanube
 - Revenue bridge: scorecard uses ecommerce revenue when connected
