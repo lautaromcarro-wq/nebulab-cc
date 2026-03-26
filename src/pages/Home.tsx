@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DeltaBadge } from "@/components/DeltaBadge";
+import { roasColor, marginColor } from "@/lib/semaforo";
 import SectionHeader from "@/components/SectionHeader";
 import StatusStrip from "@/components/StatusStrip";
 import StatCard from "@/components/StatCard";
@@ -480,12 +481,48 @@ const Home = () => {
 
               {/* Secondary KPIs */}
               <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-                <StatCard icon={DollarSign} label="Blended ROAS" value={`${fmt(totals.blendedRoas, 2)}x`} status="neutral" tooltip="Prom. ponderado plataforma + GA4" />
-                <StatCard icon={TrendingUp} label="ROAS Meta" value={`${fmt(totals.roasMeta, 2)}x`} status="neutral" />
-                <StatCard icon={TrendingUp} label="ROAS Google" value={`${fmt(totals.roasGoogle, 2)}x`} status="neutral" />
-                <StatCard icon={Eye} label="Impressions" value={fmtCompact(totals.totalImpressions)} status="neutral" />
-                <StatCard icon={MousePointerClick} label="CTR" value={`${fmt(totals.ctr, 2)}%`} status="neutral" />
-                <StatCard icon={ShoppingCart} label="Purchases" value={fmt(totals.totalPurchases)} status="neutral" />
+                <Card>
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Blended ROAS</p>
+                    <p className={cn("text-sm font-bold", roasColor(totals.blendedRoas))}>{fmt(totals.blendedRoas, 2)}x</p>
+                    {prevTotals && <div className="mt-0.5"><DeltaBadge current={totals.blendedRoas} prev={prevTotals.blendedRoas} /></div>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">ROAS Meta</p>
+                    <p className={cn("text-sm font-bold", roasColor(totals.roasMeta))}>{fmt(totals.roasMeta, 2)}x</p>
+                    {prevTotals && <div className="mt-0.5"><DeltaBadge current={totals.roasMeta} prev={prevTotals.roasMeta} /></div>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">ROAS Google</p>
+                    <p className={cn("text-sm font-bold", roasColor(totals.roasGoogle))}>{fmt(totals.roasGoogle, 2)}x</p>
+                    {prevTotals && <div className="mt-0.5"><DeltaBadge current={totals.roasGoogle} prev={prevTotals.roasGoogle} /></div>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Impressions</p>
+                    <p className="text-sm font-bold">{fmtCompact(totals.totalImpressions)}</p>
+                    {prevTotals && <div className="mt-0.5"><DeltaBadge current={totals.totalImpressions} prev={prevTotals.totalImpressions} /></div>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">CTR</p>
+                    <p className="text-sm font-bold">{fmt(totals.ctr, 2)}%</p>
+                    {prevTotals && <div className="mt-0.5"><DeltaBadge current={totals.ctr} prev={prevTotals.ctr} /></div>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Purchases</p>
+                    <p className="text-sm font-bold">{fmt(totals.totalPurchases)}</p>
+                    {prevTotals && <div className="mt-0.5"><DeltaBadge current={totals.totalPurchases} prev={prevTotals.totalPurchases} /></div>}
+                  </CardContent>
+                </Card>
               </div>
 
               {/* Trend chart */}
@@ -626,7 +663,10 @@ function SegmentCard({ card, workspaceCurrency }: { card: SegmentScorecard; work
           )}
         </div>
         <div className="grid grid-cols-3 gap-3 pt-1">
-          <MetricCell label="ROAS" value={`${fmt(card.roas, 2)}x`} />
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">ROAS</p>
+            <p className={cn("text-sm font-bold", roasColor(card.roas))}>{fmt(card.roas, 2)}x</p>
+          </div>
           <MetricCell label="EOM Proj." value={fmtCurrency(card.projectedEom, card.currency)} />
           <MetricCell label="Daily Avg" value={fmtCurrency(card.dailyAvgSpend, card.currency)} />
           <MetricCell label="CTR" value={`${fmt(card.ctr, 2)}%`} />
