@@ -129,6 +129,14 @@ function EcommerceTab({ clientId, workspaceId }: { clientId: string; workspaceId
     }
   }, [connection]);
 
+  const invalidateConn = () =>
+    qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+
+  const requireConnection = () => {
+    if (!connection?.id) { toast.error("Guardá primero la conexión"); return false; }
+    return true;
+  };
+
   const handleSave = async () => {
     if (!form.store_url || !form.api_key) {
       toast.error("Store URL y API Key son requeridos");
@@ -147,36 +155,36 @@ function EcommerceTab({ clientId, workspaceId }: { clientId: string; workspaceId
     setSaving(false);
     if (error) { toast.error("Error al guardar"); return; }
     toast.success("Conexión guardada");
-    qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+    invalidateConn();
   };
 
   const handleTest = async () => {
-    if (!connection?.id) { toast.error("Guardá primero la conexión"); return; }
+    if (!requireConnection()) return;
     setTesting(true);
     const { data: fnResult, error } = await supabase.functions.invoke("sync-ecommerce-daily", {
-      body: { connectionId: connection.id, testOnly: true },
+      body: { connectionId: connection!.id, testOnly: true },
     });
     setTesting(false);
     if (error || !fnResult?.success) {
       toast.error(`Error: ${error?.message ?? fnResult?.error ?? "desconocido"}`);
     } else {
       toast.success(`Conexión exitosa — ${fnResult.ordersFound} órdenes encontradas`);
-      qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+      invalidateConn();
     }
   };
 
   const handleSync = async () => {
-    if (!connection?.id) { toast.error("Guardá primero la conexión"); return; }
+    if (!requireConnection()) return;
     setSyncing(true);
     const { data: fnResult, error } = await supabase.functions.invoke("sync-ecommerce-daily", {
-      body: { connectionId: connection.id },
+      body: { connectionId: connection!.id },
     });
     setSyncing(false);
     if (error || !fnResult?.success) {
       toast.error(`Error en sync: ${error?.message ?? fnResult?.error ?? "desconocido"}`);
     } else {
       toast.success(`Sync completo — ${fnResult.ordersUpserted} órdenes, ${fnResult.productsUpserted} productos`);
-      qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+      invalidateConn();
     }
   };
 

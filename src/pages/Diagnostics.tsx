@@ -122,13 +122,13 @@ function useDiagnosticsData() {
           .select("id, provider, status, last_sync_at, last_error, client_id")
           .eq("workspace_id", wsId),
 
-        // Latest data date per provider in performance_daily
+        // Latest data date per provider — 90 rows covers 3 providers × 30 days
         supabase
           .from("performance_daily")
           .select("provider, date")
           .eq("workspace_id", wsId)
           .order("date", { ascending: false })
-          .limit(500),
+          .limit(90),
 
         // Latest date in analytics_daily
         supabase
@@ -138,13 +138,13 @@ function useDiagnosticsData() {
           .order("date", { ascending: false })
           .limit(1),
 
-        // Last sync run per provider
+        // Last sync run per provider — 20 covers typical job variety
         supabase
           .from("sync_runs")
           .select("provider, job_name, status, started_at, ended_at, details")
           .eq("workspace_id", wsId)
           .order("started_at", { ascending: false })
-          .limit(100),
+          .limit(20),
       ]);
 
       const integrations = integrationsRes.data ?? [];
@@ -276,9 +276,12 @@ function ConnectorCard({
 function SummaryStrip({ connectors }: { connectors: ConnectorHealth[] }) {
   const allChecks = connectors.flatMap((c) => [c.connection, c.dataFreshness, c.lastSync]);
   const total = allChecks.length;
-  const passing = allChecks.filter((c) => c.status === "ok").length;
-  const errors = allChecks.filter((c) => c.status === "error").length;
-  const warns = allChecks.filter((c) => c.status === "warn").length;
+  let passing = 0, errors = 0, warns = 0;
+  for (const c of allChecks) {
+    if (c.status === "ok") passing++;
+    else if (c.status === "error") errors++;
+    else if (c.status === "warn") warns++;
+  }
 
   const overallStatus: CheckStatus = errors > 0 ? "error" : warns > 0 ? "warn" : "ok";
   const OverallIcon = statusIcon[overallStatus];
