@@ -245,6 +245,7 @@ Deno.serve(async (req) => {
 
       // Upsert order items
       if (upsertedOrder && order.products?.length) {
+        await db.from("ecommerce_order_items").delete().eq("order_id", upsertedOrder.id);
         const items = order.products.map((p) => ({
           order_id: upsertedOrder.id,
           workspace_id: conn.workspace_id,
@@ -253,7 +254,7 @@ Deno.serve(async (req) => {
           quantity: p.quantity,
           unit_price: parseFloat(p.price),
         }));
-        await db.from("ecommerce_order_items").upsert(items, { onConflict: "order_id,product_external_id" }).throwOnError();
+        await db.from("ecommerce_order_items").insert(items);
       }
     }
 

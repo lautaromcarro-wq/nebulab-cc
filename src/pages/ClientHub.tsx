@@ -102,6 +102,7 @@ function EcommerceTab({ clientId, workspaceId }: { clientId: string; workspaceId
   });
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const { data: connection } = useQuery({
     queryKey: ["ecommerce-connection", workspaceId, clientId],
@@ -160,6 +161,21 @@ function EcommerceTab({ clientId, workspaceId }: { clientId: string; workspaceId
       toast.error(`Error: ${error?.message ?? fnResult?.error ?? "desconocido"}`);
     } else {
       toast.success(`Conexión exitosa — ${fnResult.ordersFound} órdenes encontradas`);
+      qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
+    }
+  };
+
+  const handleSync = async () => {
+    if (!connection?.id) { toast.error("Guardá primero la conexión"); return; }
+    setSyncing(true);
+    const { data: fnResult, error } = await supabase.functions.invoke("sync-ecommerce-daily", {
+      body: { connectionId: connection.id },
+    });
+    setSyncing(false);
+    if (error || !fnResult?.success) {
+      toast.error(`Error en sync: ${error?.message ?? fnResult?.error ?? "desconocido"}`);
+    } else {
+      toast.success(`Sync completo — ${fnResult.ordersUpserted} órdenes, ${fnResult.productsUpserted} productos`);
       qc.invalidateQueries({ queryKey: ["ecommerce-connection", workspaceId, clientId] });
     }
   };
@@ -240,6 +256,12 @@ function EcommerceTab({ clientId, workspaceId }: { clientId: string; workspaceId
               {testing ? "Probando…" : "Probar Conexión"}
             </Button>
           </div>
+          {connection?.status === "connected" && (
+            <Button variant="secondary" className="w-full" onClick={handleSync} disabled={syncing}>
+              <RefreshCw className={cn("h-3.5 w-3.5 mr-2", syncing && "animate-spin")} />
+              {syncing ? "Sincronizando…" : "Sincronizar ahora"}
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>
