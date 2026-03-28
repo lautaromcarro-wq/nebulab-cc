@@ -73,6 +73,7 @@ const navItems: NavItem[] = [
   { type: "section", label: "Admin" },
   { type: "link", to: "/admin/billing", label: "Facturación", icon: Receipt },
   { type: "link", to: "/admin/ops", label: "Ops", icon: ShieldAlert },
+  { type: "link", to: "/admin/diagnostics", label: "Diagnóstico", icon: Activity },
 ];
 
 const AppLayout = () => {

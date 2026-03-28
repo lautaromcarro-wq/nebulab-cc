@@ -30,6 +30,7 @@ import Analytics from "@/pages/Analytics";
 import Ecommerce from "@/pages/Ecommerce";
 import ClientReport from "@/pages/ClientReport";
 import Reports from "@/pages/Reports";
+import Diagnostics from "@/pages/Diagnostics";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -75,6 +76,7 @@ const App = () => (
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/ecommerce" element={<Ecommerce />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/admin/diagnostics" element={<Diagnostics />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
