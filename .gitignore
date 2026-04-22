@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Superpowers plugin state (brainstorms, session data)
+.superpowers/
