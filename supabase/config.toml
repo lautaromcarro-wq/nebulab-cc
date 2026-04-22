@@ -18,13 +18,7 @@ verify_jwt = false
 [functions.meta-diagnostics]
 verify_jwt = false
 
-[functions.debug-env-google-ads]
-verify_jwt = false
-
 [functions.debug-google-ads-discovery]
-verify_jwt = false
-
-[functions.debug-env-ga4]
 verify_jwt = false
 
 [functions.debug-ga4-discovery]
@@ -33,7 +27,7 @@ verify_jwt = false
 [functions.aggregate-revenue]
 verify_jwt = false
 
-[functions.debug-workspace-health]
+[functions.admin-diagnostics]
 verify_jwt = false
 
 [functions.compute-workspace-health]

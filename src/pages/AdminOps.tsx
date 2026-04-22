@@ -100,7 +100,9 @@ export default function AdminOps() {
     setDebugLoading(true);
     setDebugResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("debug-env-google-ads");
+      const { data, error } = await supabase.functions.invoke("admin-diagnostics", {
+        body: { check: "env_google" },
+      });
       if (error) setDebugResult({ error: error.message });
       else setDebugResult(data);
     } catch (e: unknown) {
