@@ -33,12 +33,12 @@ CREATE POLICY "owners write own flags" ON workspace_features
   FOR ALL USING (
     workspace_id IN (
       SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role = 'owner'
+      WHERE user_id = auth.uid() AND role = 'admin'
     )
   ) WITH CHECK (
     workspace_id IN (
       SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role = 'owner'
+      WHERE user_id = auth.uid() AND role = 'admin'
     )
   );
 
