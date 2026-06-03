@@ -2,8 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const EMAIL = 'lcarro@abstractsolutions.com.ar';
-const PASS = '***REMOVED***';
+const EMAIL = process.env.SUPABASE_USER_EMAIL;
+const PASS = process.env.SUPABASE_USER_PASSWORD;
+
+if (!EMAIL || !PASS) {
+  console.error('Set SUPABASE_USER_EMAIL and SUPABASE_USER_PASSWORD env vars');
+  process.exit(1);
+}
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
