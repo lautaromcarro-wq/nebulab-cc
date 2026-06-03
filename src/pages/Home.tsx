@@ -254,7 +254,6 @@ const Home = () => {
                 icon={DollarSign}
                 label="Spend Total"
                 value={fmtCurrency(portfolio.totals.totalSpend, "ARS")}
-                subtitle={`Fee: ${fmtCurrency(portfolio.totals.feeRevenue, "ARS")}`}
                 status="primary"
                 hero
               />
@@ -346,16 +345,16 @@ const Home = () => {
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-right">
-                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Spend Net</p>
+                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Spend Total</p>
                       <p className="text-sm font-bold">{fmtCurrency(portfolio.totals.totalSpend, "ARS")}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Fee 30%</p>
-                      <p className="text-sm font-bold text-success">{fmtCurrency(portfolio.totals.feeRevenue, "ARS")}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Revenue Ads</p>
                       <p className="text-sm font-bold">{fmtCurrency(portfolio.totals.totalRevenue, "ARS")}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Compras</p>
+                      <p className="text-sm font-bold">{fmt(portfolio.totals.totalPurchases)}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">ROAS Blended</p>

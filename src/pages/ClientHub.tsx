@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useClient } from "@/contexts/ClientContext";
 import AiAnalyst from "@/components/AiAnalyst";
+import ClientTasksTab from "@/components/ClientTasksTab";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -496,6 +497,9 @@ export default function ClientHub() {
           <TabsTrigger value="productos" className="text-xs gap-1.5">
             <ShoppingCart className="h-3.5 w-3.5" />Productos
           </TabsTrigger>
+          <TabsTrigger value="tareas" className="text-xs gap-1.5 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+            <CheckSquare className="h-3.5 w-3.5" />Tareas
+          </TabsTrigger>
           <TabsTrigger value="bitacora" className="text-xs gap-1.5">
             <FileText className="h-3.5 w-3.5" />Bitácora
           </TabsTrigger>
@@ -552,6 +556,9 @@ export default function ClientHub() {
         </TabsContent>
         <TabsContent value="productos">
           <ClientProductosTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />
+        </TabsContent>
+        <TabsContent value="tareas">
+          <ClientTasksTab clientId={selectedClient.id} />
         </TabsContent>
         <TabsContent value="bitacora">
           <ClientBitacoraTab clientId={selectedClient.id} workspaceId={currentWorkspace!.id} isAdmin={isAdmin} />

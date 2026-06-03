@@ -224,59 +224,28 @@ export function usePerformanceData() {
       const pFrom = format(prevFrom, "yyyy-MM-dd");
       const pTo = format(prevTo, "yyyy-MM-dd");
 
-      // Resolve linked account UUIDs for selected client
-      let linkedAccountIds: string[] | null = null;
-      if (selectedClient) {
-        const { data: cas } = await supabase
-          .from("client_account_settings")
-          .select("external_account_id, platform")
-          .eq("client_id", selectedClient.id)
-          .eq("is_enabled", true);
-
-        if (cas && cas.length > 0) {
-          const { data: accts } = await supabase
-            .from("accounts")
-            .select("id, external_account_id, provider")
-            .eq("workspace_id", wsId);
-          linkedAccountIds = (accts ?? [])
-            .filter((a) => cas.some((c) => c.external_account_id === a.external_account_id && c.platform === a.provider))
-            .map((a) => a.id);
-        } else {
-          linkedAccountIds = [];
-        }
-      }
-
-      if (linkedAccountIds !== null && linkedAccountIds.length === 0) {
-        return {
-          meta: { totals: EMPTY_TOTALS, prevTotals: EMPTY_TOTALS, campaigns: [], daily: [] },
-          google: { totals: EMPTY_TOTALS, prevTotals: EMPTY_TOTALS, campaigns: [], daily: [] },
-        };
-      }
-
       const buildQuery = (dateFrom: string, dateTo: string, provider?: string) => {
         let q = supabase
           .from("performance_daily")
           .select("*")
           .eq("workspace_id", wsId)
-          .eq("entity_type", "campaign")
           .gte("date", dateFrom)
           .lte("date", dateTo);
         if (provider) q = q.eq("provider", provider);
-        if (linkedAccountIds) q = q.in("account_id", linkedAccountIds);
+        // Filter by client if one is selected
+        if (selectedClient) q = q.eq("client_id", selectedClient.id);
         return q;
       };
 
-      const [campRes, acctRes, metaRes, googleRes, metaPrevRes, googlePrevRes] = await Promise.all([
-        supabase.from("campaigns").select("id, name").eq("workspace_id", wsId),
+      const [acctRes, metaRes, googleRes, metaPrevRes, googlePrevRes] = await Promise.all([
         supabase.from("accounts").select("id, name").eq("workspace_id", wsId),
-        // Only fetch if platformFilter allows it
         platformFilter === "google_ads" ? Promise.resolve({ data: [] }) : buildQuery(from, to, "meta"),
         platformFilter === "meta" ? Promise.resolve({ data: [] }) : buildQuery(from, to, "google_ads"),
         platformFilter === "google_ads" ? Promise.resolve({ data: [] }) : buildQuery(pFrom, pTo, "meta"),
         platformFilter === "meta" ? Promise.resolve({ data: [] }) : buildQuery(pFrom, pTo, "google_ads"),
       ]);
 
-      const campaignNames = new Map((campRes.data ?? []).map((c) => [c.id, c.name]));
+      const campaignNames = new Map<string, string>();
       const accountNames = new Map((acctRes.data ?? []).map((a) => [a.id, a.name]));
 
       const metaAgg = aggregateRows(metaRes.data ?? [], campaignNames, accountNames);

@@ -1054,6 +1054,7 @@ export type Database = {
           client_id: string
           created_at: string | null
           id: string
+          task_instance_id: string | null
           title: string | null
           type: string
           updated_at: string | null
@@ -1065,6 +1066,7 @@ export type Database = {
           client_id: string
           created_at?: string | null
           id?: string
+          task_instance_id?: string | null
           title?: string | null
           type?: string
           updated_at?: string | null
@@ -1076,6 +1078,7 @@ export type Database = {
           client_id?: string
           created_at?: string | null
           id?: string
+          task_instance_id?: string | null
           title?: string | null
           type?: string
           updated_at?: string | null
@@ -1087,6 +1090,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_bitacora_task_instance_id_fkey"
+            columns: ["task_instance_id"]
+            isOneToOne: false
+            referencedRelation: "task_instances"
             referencedColumns: ["id"]
           },
           {
@@ -1427,6 +1437,58 @@ export type Database = {
           },
           {
             foreignKeyName: "client_reports_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_task_config: {
+        Row: {
+          assigned_to: string | null
+          client_id: string
+          created_at: string
+          id: string
+          is_enabled: boolean
+          template_id: string
+          workspace_id: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          client_id: string
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          template_id: string
+          workspace_id: string
+        }
+        Update: {
+          assigned_to?: string | null
+          client_id?: string
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          template_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_task_config_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_task_config_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "task_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_task_config_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -3368,6 +3430,133 @@ export type Database = {
           },
           {
             foreignKeyName: "sync_runs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      task_instances: {
+        Row: {
+          bitacora_id: string | null
+          category: string
+          client_id: string
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          frequency: string
+          id: string
+          note: string | null
+          period_end: string
+          period_start: string
+          status: string
+          template_id: string | null
+          title: string
+          workspace_id: string
+        }
+        Insert: {
+          bitacora_id?: string | null
+          category: string
+          client_id: string
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          frequency: string
+          id?: string
+          note?: string | null
+          period_end: string
+          period_start: string
+          status?: string
+          template_id?: string | null
+          title: string
+          workspace_id: string
+        }
+        Update: {
+          bitacora_id?: string | null
+          category?: string
+          client_id?: string
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          frequency?: string
+          id?: string
+          note?: string | null
+          period_end?: string
+          period_start?: string
+          status?: string
+          template_id?: string | null
+          title?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_instances_bitacora_id_fkey"
+            columns: ["bitacora_id"]
+            isOneToOne: false
+            referencedRelation: "client_bitacora"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_instances_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_instances_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "task_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_instances_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      task_templates: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          frequency: string
+          id: string
+          is_active: boolean
+          sort_order: number
+          title: string
+          workspace_id: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description?: string | null
+          frequency: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          title: string
+          workspace_id: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          title?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_templates_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
