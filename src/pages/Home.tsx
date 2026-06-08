@@ -19,7 +19,7 @@ import { roasColor } from "@/lib/semaforo";
 import SectionHeader from "@/components/SectionHeader";
 import StatCard from "@/components/StatCard";
 import EmptyState from "@/components/EmptyState";
-import { fmtCurrency, fmtCompact, fmtPercent, fmt } from "@/components/formatters";
+import { fmtCurrency, fmtCurrencyCompact, fmtCompact, fmtPercent, fmt } from "@/components/formatters";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -253,14 +253,14 @@ const Home = () => {
               <StatCard
                 icon={DollarSign}
                 label="Spend Total"
-                value={fmtCurrency(portfolio.totals.totalSpend, "ARS")}
+                value={fmtCurrencyCompact(portfolio.totals.totalSpend, "ARS")}
                 status="primary"
                 hero
               />
               <StatCard
                 icon={TrendingUp}
                 label="Revenue Total"
-                value={fmtCurrency(portfolio.totals.totalRevenue, "ARS")}
+                value={fmtCurrencyCompact(portfolio.totals.totalRevenue, "ARS")}
                 status="success"
                 hero
               />
@@ -275,7 +275,7 @@ const Home = () => {
                 icon={ShoppingCart}
                 label="Compras"
                 value={fmt(portfolio.totals.totalPurchases)}
-                subtitle={`CPA: ${fmtCurrency(portfolio.totals.blendedCpa, "ARS")}`}
+                subtitle={`CPA: ${fmtCurrencyCompact(portfolio.totals.blendedCpa, "ARS")}`}
                 status="neutral"
                 hero
               />
