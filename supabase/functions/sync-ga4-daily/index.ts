@@ -30,16 +30,28 @@ Deno.serve(async (req) => {
 
     let workspaceId: string | null = null;
     let daysBack = 30;
-    let triggeredBy: "cron" | "manual" = "cron";
+    let triggeredBy: "cron" | "manual" | "backfill" = "cron";
+    // Rango explícito para backfill histórico. Sin esto sólo se puede pedir
+    // "los últimos N días", que no sirve para traer 2023 en tramos.
+    let sinceOverride: string | null = null;
+    let untilOverride: string | null = null;
     try {
       const body = await req.json();
       workspaceId = body.workspace_id ?? null;
       daysBack = body.days_back ?? 30;
       triggeredBy = body.triggered_by ?? (body.days_back ? "manual" : "cron");
+      sinceOverride = body.since ?? null;
+      untilOverride = body.until ?? null;
     } catch { /* no body */ }
 
-    const maxDays = triggeredBy === "manual" ? LIMITS.MANUAL_MAX_DAYS_BACK : LIMITS.CRON_MAX_DAYS_BACK;
-    daysBack = Math.min(daysBack, maxDays);
+    // El modo backfill es administrativo y de una sola vez: se salta el tope de
+    // días y el cooldown, que existen para que nadie dispare syncs a repetición
+    // desde la UI.
+    const isBackfill = triggeredBy === "backfill";
+    if (!isBackfill) {
+      const maxDays = triggeredBy === "manual" ? LIMITS.MANUAL_MAX_DAYS_BACK : LIMITS.CRON_MAX_DAYS_BACK;
+      daysBack = Math.min(daysBack, maxDays);
+    }
 
     // Find GA4 integrations
     let intQuery = supabase
@@ -67,7 +79,7 @@ Deno.serve(async (req) => {
         .eq("workspace_id", wsId).eq("provider", PROVIDER).eq("job_name", JOB_NAME)
         .gte("started_at", oneHourAgo);
 
-      if ((recentRuns ?? 0) >= LIMITS.MAX_RUNS_PER_HOUR) {
+      if (!isBackfill && (recentRuns ?? 0) >= LIMITS.MAX_RUNS_PER_HOUR) {
         errors.push(`Workspace ${wsId}: rate limit`);
         continue;
       }
@@ -142,8 +154,8 @@ Deno.serve(async (req) => {
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - daysBack);
-      const since = formatDate(startDate);
-      const until = formatDate(endDate);
+      const since = sinceOverride ?? formatDate(startDate);
+      const until = untilOverride ?? formatDate(endDate);
 
       let wsUpserted = 0;
 
