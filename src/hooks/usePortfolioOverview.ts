@@ -15,11 +15,18 @@ export interface ClientSummary {
   spend: number;
   impressions: number;
   clicks: number;
+  // Ventas REALES del sitio, medidas por GA4. Es la única fuente no inflada:
+  // Meta y Google se atribuyen la misma venta cada uno por su lado, así que
+  // sumar lo que reporta cada plataforma cuenta la misma plata dos veces.
   purchases: number;
   revenue: number;
+  // Lo que las plataformas dicen haber generado. Sirve para medir cuánto se
+  // sobre-atribuyen, nunca como facturación real.
+  revenueAttributed: number;
+  purchasesAttributed: number;
   ctr: number;
   cpa: number;
-  roas: number;
+  roas: number; // blended: ventas reales / inversión total
   spendMeta: number;
   spendGoogle: number;
   // Budget & pacing
@@ -141,6 +148,24 @@ export function usePortfolioOverview(targetDate?: Date) {
 
       if (error) throw error;
 
+      // Ventas reales del sitio. GA4 mide la transacción una sola vez, sin
+      // importar qué plataforma se la adjudique.
+      const { data: ga4Rows } = await supabase
+        .from("ga4_daily")
+        .select("client_id, revenue, purchases")
+        .eq("workspace_id", wsId)
+        .not("client_id", "is", null)
+        .gte("date", from)
+        .lte("date", to);
+
+      const realSales = new Map<string, { revenue: number; purchases: number }>();
+      for (const row of ga4Rows ?? []) {
+        const e = realSales.get(row.client_id!) ?? { revenue: 0, purchases: 0 };
+        e.revenue += Number(row.revenue) || 0;
+        e.purchases += Number(row.purchases) || 0;
+        realSales.set(row.client_id!, e);
+      }
+
       // Fetch client names
       const { data: clientRows } = await supabase
         .from("clients")
@@ -192,15 +217,22 @@ export function usePortfolioOverview(targetDate?: Date) {
           else if (pacingDelta < -5) pacingStatus = "underpacing";
         }
 
+        const real = realSales.get(clientId) ?? { revenue: 0, purchases: 0 };
+
         const ctr = metrics.impressions > 0 ? (metrics.clicks / metrics.impressions) * 100 : 0;
-        const cpa = metrics.purchases > 0 ? metrics.spend / metrics.purchases : 0;
-        const roas = metrics.spend > 0 ? metrics.revenue / metrics.spend : 0;
+        // CPA y ROAS contra ventas reales, no contra lo que se atribuyen las
+        // plataformas. Con revenue atribuido el ROAS de Diana daba 25x cuando
+        // el real es 8x.
+        const cpa = real.purchases > 0 ? metrics.spend / real.purchases : 0;
+        const roas = metrics.spend > 0 ? real.revenue / metrics.spend : 0;
 
         clients.push({
           clientId, clientName: name,
           spend: metrics.spend, impressions: metrics.impressions,
-          clicks: metrics.clicks, purchases: metrics.purchases,
-          revenue: metrics.revenue, ctr, cpa, roas,
+          clicks: metrics.clicks,
+          purchases: real.purchases, revenue: real.revenue,
+          revenueAttributed: metrics.revenue, purchasesAttributed: metrics.purchases,
+          ctr, cpa, roas,
           spendMeta: metrics.spendMeta, spendGoogle: metrics.spendGoogle,
           budgetTotal: gross, budgetNet, pacingPercent, expectedPercent,
           pacingDelta, pacingStatus,

@@ -349,7 +349,7 @@ const Home = () => {
                       <p className="text-sm font-bold">{fmtCurrency(portfolio.totals.totalSpend, "ARS")}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Revenue Ads</p>
+                      <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Ventas reales</p>
                       <p className="text-sm font-bold">{fmtCurrency(portfolio.totals.totalRevenue, "ARS")}</p>
                     </div>
                     <div className="text-right">

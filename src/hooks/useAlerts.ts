@@ -76,6 +76,25 @@ export function useAlerts() {
     },
   });
 
+  // Ventas reales del sitio para el ROAS. El revenue de performance_daily es
+  // lo que se atribuye cada plataforma y viene inflado: Meta y Google se
+  // cuelgan la misma venta, así que sumarlos duplica.
+  const { data: ga4Rows = [] } = useQuery({
+    queryKey: ["alerts-ga4", wsId],
+    enabled: !!wsId,
+    refetchInterval: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("ga4_daily")
+        .select("date, client_id, revenue")
+        .eq("workspace_id", wsId)
+        .not("client_id", "is", null)
+        .gte("date", from14)
+        .lte("date", toToday);
+      return data ?? [];
+    },
+  });
+
   // Fetch segments with budgets for budget alerts
   const { data: segments = [], isLoading: segLoading } = useQuery({
     queryKey: ["alerts-segments", wsId],
@@ -197,9 +216,19 @@ export function useAlerts() {
       const baselineAdRows = baselineRows.filter((r) => r.spend > 0);
 
       const recentRoasSpend = recentAdRows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const recentRoasRevenue = recentAdRows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
       const baselineRoasSpend = baselineAdRows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
-      const baselineRoasRevenue = baselineAdRows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+
+      // Revenue real de GA4 para las mismas ventanas de fechas.
+      const recentDates = new Set(recentAdRows.map((r) => r.date));
+      const baselineDates = new Set(baselineAdRows.map((r) => r.date));
+      const ga4ForClient = ga4Rows.filter((g: any) => g.client_id === clientId);
+      const sumGa4 = (dates: Set<string>) =>
+        ga4ForClient
+          .filter((g: any) => dates.has(g.date))
+          .reduce((s: number, g: any) => s + (Number(g.revenue) || 0), 0);
+
+      const recentRoasRevenue = sumGa4(recentDates);
+      const baselineRoasRevenue = sumGa4(baselineDates);
 
       const recentROAS = recentRoasSpend > 0 ? recentRoasRevenue / recentRoasSpend : null;
       const baselineROAS = baselineRoasSpend > 0 ? baselineRoasRevenue / baselineRoasSpend : null;
