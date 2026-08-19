@@ -74,7 +74,11 @@ function aggregateRows(rows: any[], campaignNames: Map<string, string>, accountN
   const dailyMap = new Map<string, DailyPoint>();
 
   for (const row of rows) {
-    const cId = row.entity_id ?? row.id;
+    // El histórico previo al 20-may-2026 es platform_total: no tiene entity_id
+    // porque nunca vino desglosado por campaña. Agrupar por row.id lo partía en
+    // una entrada por día; se juntan todas bajo una sola por plataforma.
+    const isTotal = !row.entity_id;
+    const cId = row.entity_id ?? `__total__${row.provider}`;
     const existing = campaignMap.get(cId);
     if (existing) {
       existing.spend += Number(row.spend) || 0;
@@ -84,9 +88,11 @@ function aggregateRows(rows: any[], campaignNames: Map<string, string>, accountN
       existing.revenue += Number(row.revenue) || 0;
     } else {
       campaignMap.set(cId, {
-        name: campaignNames.get(cId) ?? "Unknown",
+        name: isTotal
+          ? "Histórico (sin desglose por campaña)"
+          : campaignNames.get(cId) ?? "Campaña sin nombre",
         provider: row.provider,
-        accountName: accountNames.get(row.account_id) ?? "Unknown",
+        accountName: accountNames.get(row.account_id) ?? "Cuenta sin nombre",
         spend: Number(row.spend) || 0,
         impressions: Number(row.impressions) || 0,
         clicks: Number(row.clicks) || 0,
