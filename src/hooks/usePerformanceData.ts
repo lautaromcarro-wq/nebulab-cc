@@ -232,8 +232,11 @@ export function usePerformanceData() {
           .gte("date", dateFrom)
           .lte("date", dateTo);
         if (provider) q = q.eq("provider", provider);
-        // Filter by client if one is selected
+        // Filter by client if one is selected.
+        // Sin cliente seleccionado hay que excluir el nivel cuenta igual, o su
+        // total se suma encima del de sus propias campañas.
         if (selectedClient) q = q.eq("client_id", selectedClient.id);
+        else q = q.not("client_id", "is", null);
         return q;
       };
 

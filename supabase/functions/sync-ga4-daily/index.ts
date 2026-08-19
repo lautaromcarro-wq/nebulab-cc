@@ -174,6 +174,11 @@ Deno.serve(async (req) => {
                 metrics: [
                   { name: "totalRevenue" },
                   { name: "ecommercePurchases" },
+                  { name: "sessions" },
+                  { name: "totalUsers" },
+                  { name: "screenPageViews" },
+                  { name: "userEngagementDuration" },
+                  { name: "bounceRate" },
                 ],
               }),
             }
@@ -203,15 +208,20 @@ Deno.serve(async (req) => {
             const dateStr = row.dimensionValues?.[0]?.value;
             if (!dateStr) continue;
             const formattedDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-            const revenue = parseFloat(row.metricValues?.[0]?.value || "0");
-            const purchases = parseInt(row.metricValues?.[1]?.value || "0", 10);
+            const num = (i: number) => parseFloat(row.metricValues?.[i]?.value || "0");
+            const int = (i: number) => parseInt(row.metricValues?.[i]?.value || "0", 10);
 
             await supabase.from("ga4_daily").upsert({
               workspace_id: wsId,
               account_id: accountId,
               date: formattedDate,
-              revenue,
-              purchases,
+              revenue: num(0),
+              purchases: int(1),
+              sessions: int(2),
+              users: int(3),
+              screen_page_views: int(4),
+              engagement_duration_secs: int(5),
+              bounce_rate: num(6),
             }, { onConflict: "workspace_id,account_id,date" });
             wsUpserted++;
           }

@@ -239,7 +239,9 @@ export default function Analytics() {
       .gte("date", from)
       .lte("date", to)
       .order("date");
+    // Excluye el nivel cuenta, que duplicaría el total de sus campañas.
     if (selectedClient) q = q.eq("client_id", selectedClient.id);
+    else q = q.not("client_id", "is", null);
     const { data } = await q;
     return data ?? [];
   };

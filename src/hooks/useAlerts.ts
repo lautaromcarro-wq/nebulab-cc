@@ -63,6 +63,8 @@ export function useAlerts() {
         .select("date, client_id, provider, spend, revenue, purchases, client_name:clients(name)")
         .eq("workspace_id", wsId)
         .neq("provider", "ga4")
+        // Ver nota en usePortfolioOverview: excluye el nivel cuenta.
+        .not("client_id", "is", null)
         .gte("date", from14)
         .lte("date", toToday)
         .order("date");

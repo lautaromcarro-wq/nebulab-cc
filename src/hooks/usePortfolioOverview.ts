@@ -133,6 +133,9 @@ export function usePortfolioOverview(targetDate?: Date) {
         .from("performance_daily")
         .select("client_id, provider, spend, impressions, clicks, purchases, revenue")
         .eq("workspace_id", wsId)
+        // Sin client_id son filas de nivel cuenta, cuyo total ya está contenido
+        // en sus campañas. Incluirlas contaría la misma inversión dos veces.
+        .not("client_id", "is", null)
         .gte("date", from)
         .lte("date", to);
 

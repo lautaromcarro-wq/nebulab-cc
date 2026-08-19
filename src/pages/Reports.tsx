@@ -278,7 +278,9 @@ export default function Reports() {
         .eq("workspace_id", wsId)
         .gte("date", fromStr)
         .lte("date", toStr);
+      // Excluye el nivel cuenta, que duplicaría el total de sus campañas.
       if (clientId !== "all") q = q.eq("client_id", clientId);
+      else q = q.not("client_id", "is", null);
       const { data } = await q;
       return data ?? [];
     },
