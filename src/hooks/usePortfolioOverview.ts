@@ -167,11 +167,12 @@ export function usePortfolioOverview(targetDate?: Date) {
       }
 
       // Fetch client names
+      // Sin filtrar por status: los ex clientes tienen histórico y su nombre
+      // tiene que resolverse igual, o aparecen como "Unknown" al mirar atrás.
       const { data: clientRows } = await supabase
         .from("clients")
         .select("id, name, status")
-        .eq("workspace_id", wsId)
-        .eq("status", "active");
+        .eq("workspace_id", wsId);
 
       const clientNameMap = new Map(
         (clientRows ?? []).map((c) => [c.id, c.name])

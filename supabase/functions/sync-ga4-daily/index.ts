@@ -199,7 +199,9 @@ Deno.serve(async (req) => {
           if (!reportRes.ok) {
             const errText = await reportRes.text();
             console.error(`[sync-ga4-daily] Report error for ${propertyId}:`, reportRes.status, errText.substring(0, 500));
-            errors.push(`Property ${propertyId}: HTTP ${reportRes.status}`);
+            // El código HTTP solo no alcanza para diagnosticar: GA4 devuelve 400
+            // por motivos muy distintos y el detalle viene en el cuerpo.
+            errors.push(`Property ${propertyId}: HTTP ${reportRes.status} ${errText.substring(0, 200)}`);
             continue;
           }
 

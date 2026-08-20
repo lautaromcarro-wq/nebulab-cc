@@ -234,7 +234,6 @@ Deno.serve(async (req) => {
             const campQuery = `
               SELECT campaign.id, campaign.name, campaign.status
               FROM campaign
-              WHERE campaign.status != 'REMOVED'
             `;
             const campData = await gaqlSearch(accessToken, developerToken, loginCustomerId, custId, campQuery);
             if (campData.error) {
@@ -312,7 +311,6 @@ Deno.serve(async (req) => {
                 metrics.conversions_value
               FROM campaign
               WHERE segments.date BETWEEN '${since}' AND '${until}'
-                AND campaign.status != 'REMOVED'
             `;
             const campMetricsData = await gaqlSearch(accessToken, developerToken, loginCustomerId, custId, campMetricsQuery);
 
